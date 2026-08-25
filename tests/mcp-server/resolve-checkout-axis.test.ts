@@ -3,7 +3,11 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { RepoContextResolver } from "../../src/mcp-server/repo-context.js";
+import {
+  RepoContextResolver,
+  RepoNotIndexedError,
+  WorktreeIndexPendingError,
+} from "../../src/mcp-server/repo-context.js";
 import { GraphStore } from "../../src/graph/store.js";
 
 let base: string, main: string, wt: string;
@@ -19,6 +23,25 @@ function seedDb(root: string) {
   const store = new GraphStore(join(root, ".cortex", "db"));
   store.createNode({ kind: "file", name: "a.txt" });
   store.close();
+}
+
+/**
+ * Run `fn` with CORTEX_AUTO_INDEX disabled. resolve() on a checkout with no
+ * store kicks a REAL detached `cortex index` (see kickBackgroundIndex in
+ * repo-context.ts) unless this is set — tests that assert the thrown error
+ * SHAPE (not the self-healing kick itself) must not spawn a real indexer
+ * against a scratch fixture. The in-flight test below sidesteps this by
+ * pre-seeding a fresh sentinel, which short-circuits before the spawn branch.
+ */
+function withAutoIndexDisabled<T>(fn: () => T): T {
+  const prev = process.env.CORTEX_AUTO_INDEX;
+  process.env.CORTEX_AUTO_INDEX = "0";
+  try {
+    return fn();
+  } finally {
+    if (prev === undefined) delete process.env.CORTEX_AUTO_INDEX;
+    else process.env.CORTEX_AUTO_INDEX = prev;
+  }
 }
 
 beforeAll(() => {
@@ -46,7 +69,6 @@ describe("resolve() on the checkout axis", () => {
     expect(ctx.repoPath).toBe(wt);
     expect(ctx.graphDbPath).toBe(join(wt, ".cortex", "db"));
     expect(ctx.worktreeOf).toBe(main);
-    expect(ctx.servedFrom).toBe("checkout");
   });
 
   it("does NOT share a pool entry between a worktree and its main checkout", () => {
@@ -58,26 +80,63 @@ describe("resolve() on the checkout axis", () => {
     const r = new RepoContextResolver({ poolCapacity: 4 });
     expect(r.resolve(main).worktreeOf).toBeNull();
   });
+});
 
-  it("marks servedFrom=canonical when the worktree has no store of its own", () => {
+/**
+ * Strict reads: the Stage 1 cross-checkout fallback is gone. A checkout with
+ * no store of its own is refused, never silently served from its canonical
+ * repo's graph — even though `main` here is fully indexed. `RepoContext` no
+ * longer carries a `servedFrom` field (it existed only to flag that now-
+ * removed fallback firing); the refusal itself is the signal now.
+ */
+describe("resolve() refuses to serve canonical for an unindexed worktree", () => {
+  it("refuses to serve canonical for an unindexed worktree", () => {
     rmSync(join(wt, ".cortex"), { recursive: true, force: true });
+    withAutoIndexDisabled(() => {
+      const r = new RepoContextResolver({ poolCapacity: 4 });
+      expect(() => r.resolve(wt)).toThrow(/not indexed/i);
+    });
+    seedDb(wt);
+  });
+
+  it("names the worktree, its branch, and its canonical parent in the error", () => {
+    rmSync(join(wt, ".cortex"), { recursive: true, force: true });
+    withAutoIndexDisabled(() => {
+      const r = new RepoContextResolver({ poolCapacity: 4 });
+      try {
+        r.resolve(wt);
+        throw new Error("should have thrown");
+      } catch (e: any) {
+        expect(e).toBeInstanceOf(RepoNotIndexedError);
+        expect(e.path).toBe(wt);
+        expect(e.branch).toBe("feature/x");
+        expect(e.canonical).toBe(main);
+      }
+    });
+    seedDb(wt);
+  });
+
+  it("raises WorktreeIndexPendingError while a background index is in flight", () => {
+    rmSync(join(wt, ".cortex"), { recursive: true, force: true });
+    mkdirSync(join(wt, ".cortex"), { recursive: true });
+    writeFileSync(join(wt, ".cortex", ".auto-index-attempted"), "");
     const r = new RepoContextResolver({ poolCapacity: 4 });
-    const ctx = r.resolve(wt);
-    expect(ctx.graphDbPath).toBe(join(main, ".cortex", "db"));
-    expect(ctx.servedFrom).toBe("canonical");
+    expect(() => r.resolve(wt)).toThrow(WorktreeIndexPendingError);
+    rmSync(join(wt, ".cortex"), { recursive: true, force: true });
     seedDb(wt);
   });
 });
 
 /**
- * Regression — finding 5: `servedFrom` must not mislabel a worktree that lives
- * INSIDE its main checkout. A prefix test (`graphDbPath.startsWith(worktreeOf
- * + "/")`) is true for `/repo/wt/.cortex/db` simply because the parent's path
- * is a prefix, so a nested worktree serving its OWN store was reported as
- * `servedFrom: "canonical"` — telling the caller the answer describes another
- * branch when it does not.
+ * Regression — finding 5 (historical): a PREFIX test on the canonical path
+ * (`graphDbPath.startsWith(worktreeOf + "/")`) used to mislabel a worktree
+ * living INSIDE its main checkout as `servedFrom: "canonical"` even when it
+ * was serving its own store, because `/repo/wt/.cortex/db` starts with
+ * `/repo/` regardless. That comparison — and the `servedFrom` field it fed —
+ * is gone under strict reads; this suite now just confirms a nested worktree
+ * still resolves to (and refuses to leave) its own checkout root.
  */
-describe("servedFrom with a worktree nested inside its main checkout", () => {
+describe("strict reads with a worktree nested inside its main checkout", () => {
   let nestBase: string, nestMain: string, nestWt: string;
 
   beforeAll(() => {
@@ -98,20 +157,19 @@ describe("servedFrom with a worktree nested inside its main checkout", () => {
 
   afterAll(() => rmSync(nestBase, { recursive: true, force: true }));
 
-  it("reports servedFrom=checkout when the nested worktree serves its own store", () => {
+  it("resolves to its own store when the nested worktree has an index", () => {
     const r = new RepoContextResolver({ poolCapacity: 4 });
     const ctx = r.resolve(nestWt);
     expect(ctx.graphDbPath).toBe(join(nestWt, ".cortex", "db"));
     expect(ctx.worktreeOf).toBe(nestMain);
-    expect(ctx.servedFrom).toBe("checkout");
   });
 
-  it("still reports servedFrom=canonical when the nested worktree has no store", () => {
+  it("throws (never falls back to the canonical parent) when the nested worktree has no store", () => {
     rmSync(join(nestWt, ".cortex"), { recursive: true, force: true });
-    const r = new RepoContextResolver({ poolCapacity: 4 });
-    const ctx = r.resolve(nestWt);
-    expect(ctx.graphDbPath).toBe(join(nestMain, ".cortex", "db"));
-    expect(ctx.servedFrom).toBe("canonical");
+    withAutoIndexDisabled(() => {
+      const r = new RepoContextResolver({ poolCapacity: 4 });
+      expect(() => r.resolve(nestWt)).toThrow(RepoNotIndexedError);
+    });
     seedDb(nestWt);
   });
 });

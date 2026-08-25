@@ -83,39 +83,27 @@ git_root_of() {
   return 1
 }
 
-# Collapse a linked worktree (or subdir) onto the repo's MAIN worktree root --
-# the shell mirror of src/db/git-root.ts::mainWorktreeRoot. Decision D-b248
-# ("one index per repo, shared across all worktrees") makes the canonical root
-# the ONLY place a graph store lives: `cortex index` run from a worktree writes
-# the main checkout's .cortex/db, never the worktree's. A gate that tests the
-# literal directory therefore reads every worktree as unindexed and switches
-# itself off -- in exactly the place the workflow rules mandate feature work.
-# `--git-common-dir` is what collapses worktrees correctly (`--show-toplevel`
-# returns the worktree checkout dir; D-b248 rejected it for that reason).
-# Degrade-safe: any git failure (old git without --path-format, a fake .git
-# dir, no repo) returns the input unchanged, preserving prior behavior.
-canonical_root() {
-  local common
-  common="$(git -C "$1" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
-  case "$common" in
-    */.git) printf '%s' "${common%/.git}"; return 0 ;;
-  esac
-  printf '%s' "$1"
-}
-
 # `-s`: exists AND non-empty, so a 0-byte degraded DB reads as not-indexed.
-# Literal checkout FIRST, canonical root second. Today only the canonical root
-# ever holds a store, so the first pair never hits -- but per-worktree indexing
-# is explicitly left open by D-b248 ("future per-worktree diffing stays open"),
-# and checking the literal path first means such a store would be honored the
-# day it exists instead of being silently ignored by the gate.
+# CHECKOUT-SCOPED: no canonical fallback. Under per-worktree indexing an
+# unindexed worktree IS an unindexed repo — falling back to canonical would
+# block the search while Cortex simultaneously refuses to answer from another
+# branch's graph, leaving no retrieval path at all. The degrade-safe rule
+# (allow, kick a background index) applies here as everywhere else.
+#
+# This used to collapse a linked worktree (or subdir) onto the repo's MAIN
+# worktree root via `canonical_root()` (git --git-common-dir), matching
+# decision D-b248 ("one index per repo, shared across all worktrees") from
+# when `cortex index` run from a worktree wrote the main checkout's
+# `.cortex/db` and never the worktree's own. Per-worktree indexing
+# (graph-storage.md#two-axes) made that stale: `cortex index` now indexes the
+# literal checkout it's pointed at, so a worktree genuinely gets its own
+# store, and reading through to canonical here would report a worktree as
+# "indexed" purely because its main checkout happens to be — while the MCP
+# read path (src/mcp-server/repo-context.ts) now strictly refuses to serve
+# that canonical graph for an unindexed checkout. `canonical_root()` is
+# deleted along with this fallback; nothing else used it.
 repo_indexed() {
-  [ -s "$1/.cortex/db" ] && return 0
-  [ -s "$1/.cortex/graph.db" ] && return 0
-  local c
-  c="$(canonical_root "$1")"
-  [ "$c" = "$1" ] && return 1
-  [ -s "$c/.cortex/db" ] || [ -s "$c/.cortex/graph.db" ]
+  [ -s "$1/.cortex/db" ] || [ -s "$1/.cortex/graph.db" ]
 }
 
 # First path-like token in a Bash command: starts with / ./ ../ ~ or contains
@@ -160,8 +148,9 @@ maybe_bg_index() {
   # literal checkout it's pointed at -- a linked worktree genuinely gets its
   # own `.cortex/db` -- so collapsing here would misfile the sentinel onto the
   # main checkout while the worktree (the thing actually being searched)
-  # stays unindexed forever. `canonical_root` stays defined: `repo_indexed()`
-  # below still reads through it until a later stage removes that fallback.
+  # stays unindexed forever. `repo_indexed()` above is checkout-scoped too now
+  # (the canonical read-through it used to fall back to is gone), so this and
+  # the gate agree on what "indexed" means for a given checkout.
   [ "${CORTEX_AUTO_INDEX:-1}" = "0" ] && return 0
   printf '%s' "$root" | grep -Eq "$AUTO_INDEX_DENYLIST_RE" && return 0
 

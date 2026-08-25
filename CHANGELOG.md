@@ -18,6 +18,85 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [2.0.0] — 2026-08-25
+
+**Reads are strict: a checkout is served its own graph, or none.** This
+completes per-worktree indexing — v1.11.0 split root derivation into two axes
+and gave every checkout its own store, v1.12.0 made indexing automatic, and
+this release removes the transitional fallback that let a not-yet-indexed
+checkout read another checkout's graph. Decision
+[`D-d5k3`](docs/architecture/graph-storage.md#two-axes) supersedes `D-b248`.
+
+### Breaking
+
+- **A checkout with no graph store of its own is refused, not served the
+  canonical repo's graph.** `RepoContextResolver.resolve` now throws rather
+  than falling back:
+
+  | Condition | Error | What to do |
+  |---|---|---|
+  | No store; a background index is in flight | `WorktreeIndexPendingError` | Retry in a few seconds, or pass `repo_path` = the main checkout to read it deliberately |
+  | No store; no index in flight | `RepoNotIndexedError` | Run `cortex index . <path>` |
+
+  Both carry `path`, `branch` and `canonical`. Reading the main checkout from
+  inside a worktree is still possible — it is now an **explicit** choice
+  rather than a silent one.
+
+  *Why breaking rather than a warning:* a silent fallback is indistinguishable
+  from a correct answer at the call site. A worktree served the main
+  checkout's graph returns confident results about the wrong branch, which is
+  worse than an error, and is exactly what an always-visible viewer must never
+  do.
+
+- **`servedFrom` is removed** from `RepoContext`. It annotated the fallback
+  this release deletes; v1.11.0 introduced it as explicitly temporary. It was
+  never part of the HTTP/MCP wire contract, so `CONTRACT_VERSION` stays `1`
+  and no `docs/api/*.schema.json` changed.
+
+- **The retrieval gate resolves on the checkout axis.** `repo_indexed` in
+  `hooks/prefer-cortex.sh` no longer reads through to the canonical root, and
+  `canonical_root()` is gone. A worktree with no store of its own now reads as
+  unindexed, so plain `grep` **passes through** instead of being denied.
+
+  This is paired with strict reads and must stay paired: refusing reads while
+  the gate still denied greps on the main checkout's index would leave an
+  agent in a fresh worktree with neither a working read nor a permitted
+  search.
+
+### Added
+
+- **Self-healing refusals.** Before raising `WorktreeIndexPendingError`,
+  `resolve` starts a detached index via `kickBackgroundIndex`, which mirrors
+  `maybe_bg_index` in `hooks/prefer-cortex.sh` — same
+  `<checkout>/.cortex/.auto-index-attempted` sentinel, same 60-minute backoff,
+  same `CORTEX_AUTO_INDEX=0` opt-out — and never throws. Strictness costs
+  latency, not usability.
+- **A diagnostic trail for failed index spawns.** The spawned index's output
+  goes to `<checkout>/.cortex/auto-index.log`, and a spawn that fails outright
+  (an unresolvable `cortex` — reachable when Cortex runs as a sidecar from a
+  tarball) records `[auto-index] failed to spawn '<bin>': <message>` there.
+  Previously such a failure was silent, leaving every read to report "retry
+  shortly" for a full sentinel window with nothing explaining why retries
+  never resolved. Truncates per attempt, matching the shell twin.
+
+### Migration
+
+Most users are unaffected: a main checkout that is indexed behaves exactly as
+before, and an unindexed one now self-heals instead of returning an empty
+graph.
+
+If you work inside linked worktrees:
+
+- A fresh worktree refuses reads for as long as its first index takes, then
+  serves its own graph. No action needed.
+- To read the main checkout from inside a worktree, pass its path as
+  `repo_path` explicitly.
+- Tooling that inspected `servedFrom` should drop it; the distinction it
+  encoded no longer exists.
+- `CORTEX_AUTO_INDEX=0` disables the background kick, in which case an
+  unindexed checkout returns `RepoNotIndexedError` immediately rather than
+  pending.
+
 ## [1.12.1] — 2026-08-24
 
 ### Fixed
@@ -1976,6 +2055,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[2.0.0]: https://github.com/ruevu/cortex/releases/tag/v2.0.0
 [1.12.1]: https://github.com/ruevu/cortex/releases/tag/v1.12.1
 [1.12.0]: https://github.com/ruevu/cortex/releases/tag/v1.12.0
 [1.11.2]: https://github.com/ruevu/cortex/releases/tag/v1.11.2

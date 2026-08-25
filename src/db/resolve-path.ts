@@ -102,54 +102,40 @@ function isOpenableSqlite(dbPath: string): boolean {
  *
  * Checkout axis: `root` here is {@link worktreeRoot} (a linked worktree gets
  * its own store), not {@link mainWorktreeRoot} — the identity axis, which
- * stays reserved for decisions/todos. Stage 1 transitional: when the checkout
- * has no *usable* store of its own (and no legacy fallback either), this cedes
- * to the canonical main-worktree store so a freshly-created worktree that
- * hasn't been indexed yet still resolves instead of coming up empty. Stage 3
- * removes this cross-checkout fallback and raises instead. Returns null when
- * neither the checkout nor the canonical repo has a store at all; the caller
- * raises RepoNotIndexedError.
+ * stays reserved for decisions/todos. STRICT: there is no cross-checkout
+ * fallback. A checkout with no usable store of its own — and no legacy
+ * fallback either — resolves to null, full stop, even when its canonical
+ * main-worktree repo has a perfectly good index. (An earlier "Stage 1"
+ * transitional cut ceded to the canonical store here so a freshly-created,
+ * not-yet-indexed worktree still resolved instead of coming up empty; that
+ * fallback silently served another branch's graph as if it were this
+ * checkout's own, and is gone as of the strict-reads stage.) Returns null
+ * when the checkout has no store at all; the caller ({@link
+ * RepoContextResolver.resolve}) raises `RepoNotIndexedError` or
+ * `WorktreeIndexPendingError`, and kicks a background index so the retry
+ * succeeds.
  *
- * "Usable" is axis-dependent, and deliberately so:
- *  - **Main checkout** — the canonical store wins whenever it merely *opens*,
- *    including when it is valid-but-empty or a 0-byte drift. There is nothing
- *    to cede to, and the freshness layer must surface `empty` (reindex me)
- *    rather than `RepoNotIndexedError`.
- *  - **Linked worktree** — the checkout's own store must additionally be
- *    POPULATED to win over the canonical fallback. Merely booting the server
- *    in a worktree creates an empty `<wt>/.cortex/db` (`mkdirSync` + `new
- *    GraphStore` in src/index.ts); if that empty file won here, the Stage 1
- *    fallback would silently never fire again for that checkout and every read
- *    would come back empty — a later stage's strict mode without its error.
- *    When there is no canonical store to cede to, the empty checkout store is
- *    still returned, so `empty` freshness works there too.
+ * The canonical store wins whenever it merely *opens*, including when it is
+ * valid-but-empty or a 0-byte drift — there is nothing to cede to, and the
+ * freshness layer must surface `empty` (reindex me) rather than
+ * `RepoNotIndexedError`. This applies uniformly to a main checkout AND a
+ * linked worktree: an empty-but-openable `<checkout>/.cortex/db` is *this
+ * checkout's own* (if under-populated) graph, not a stand-in for another
+ * checkout's, so it is correct to surface it (and its `empty` freshness
+ * verdict) rather than raiding a sibling checkout for a "better" answer.
  */
 export function resolveGraphDbForRead(repoPath: string): string | null {
   const root = worktreeRoot(repoPath);
   const cortexDb = join(root, ".cortex", "db");
-  const checkoutUsable = existsSync(cortexDb) && isOpenableSqlite(cortexDb);
+  if (existsSync(cortexDb) && isOpenableSqlite(cortexDb)) return cortexDb;
 
-  // Stage 1 cross-checkout fallback target — non-null only for a LINKED
-  // worktree (in a main checkout both axes resolve to the same root).
-  const canonicalRoot = mainWorktreeRoot(repoPath);
-  const canonicalDb =
-    canonicalRoot && canonicalRoot !== root ? join(canonicalRoot, ".cortex", "db") : null;
-
-  if (checkoutUsable && (canonicalDb === null || hasNodes(cortexDb))) return cortexDb;
-
-  if (!checkoutUsable) {
-    const legacy = [
-      join(root, ".cortex", "graph.db"),
-      join(homedir(), ".cache", "cortex-indexer", `${cacheSlug(root)}.db`),
-    ];
-    const existing = legacy.filter(existsSync);
-    const populated = existing.find(hasNodes);
-    if (populated) return populated;
-    if (existing[0]) return existing[0];
-  }
-
-  if (canonicalDb && existsSync(canonicalDb) && isOpenableSqlite(canonicalDb)) return canonicalDb;
-  return existsSync(cortexDb) ? cortexDb : null;
+  const legacy = [
+    join(root, ".cortex", "graph.db"),
+    join(homedir(), ".cache", "cortex-indexer", `${cacheSlug(root)}.db`),
+  ];
+  const existing = legacy.filter(existsSync);
+  const populated = existing.find(hasNodes);
+  return populated ?? existing[0] ?? (existsSync(cortexDb) ? cortexDb : null);
 }
 
 /**
