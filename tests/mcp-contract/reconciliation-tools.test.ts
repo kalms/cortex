@@ -5,8 +5,8 @@ import { createHarness, callTool, type HarnessContext } from "./harness.js";
 
 describe("record_reconciliation", () => {
   let h: HarnessContext;
-  beforeAll(async () => { h = await createHarness(); process.env.CORTEX_RECONCILE = "1"; });
-  afterAll(async () => { delete process.env.CORTEX_RECONCILE; await h.close(); });
+  beforeAll(async () => { h = await createHarness(); });
+  afterAll(async () => { await h.close(); });
 
   it("rejects a decision with zero GOVERNS links", async () => {
     const created = await callTool(h, "decision", { action: "create", title: "no-governs", description: "d", rationale: "r" });

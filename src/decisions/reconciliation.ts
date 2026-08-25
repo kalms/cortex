@@ -10,11 +10,6 @@ export interface GovernedRef {
   target_ref: string;
 }
 
-/** True only when reconciliation is explicitly enabled. Default off (v1). */
-export function RECONCILE_ENABLED(): boolean {
-  return process.env.CORTEX_RECONCILE === "1";
-}
-
 /** Reject absolute paths and any '..' segment so a governed ref can never
  *  escape the repo root when joined to it. Backslashes are treated as
  *  separators too, for safety on mixed inputs. */

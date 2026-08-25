@@ -1,6 +1,6 @@
 import type { RepoContext } from "./repo-context.js";
 import type { DecisionRecord } from "../decisions/repository.js";
-import { hashGovernedSource, displayState, RECONCILE_ENABLED, type GovernedRef } from "../decisions/reconciliation.js";
+import { hashGovernedSource, displayState, type GovernedRef } from "../decisions/reconciliation.js";
 
 type TextResult = { content: Array<{ type: string; text: string }>; [k: string]: unknown };
 
@@ -13,10 +13,10 @@ export function governedRefs(ctx: RepoContext, id: string): GovernedRef[] {
 /**
  * For each ACTIVE decision in `decisions`, decide whether its cached verdict is
  * stale-pending (current governed hash != reconciled_source_hash, or never
- * judged with GOVERNS links present). When enabled and ≥1 is stale-pending,
- * append a one-line note + a structured `reconciliation` block instructing the
- * agent to judge and call record_reconciliation. No-op when CORTEX_RECONCILE
- * is off, or nothing drifted. Mutates and returns `result`.
+ * judged with GOVERNS links present). When ≥1 is stale-pending, append a
+ * one-line note + a structured `reconciliation` block instructing the agent
+ * to judge and call record_reconciliation. No-op when nothing drifted.
+ * Mutates and returns `result`.
  *
  * IMPORTANT: pass RAW DecisionRecords (which carry reconciled_source_hash);
  * service Decisions strip that column.
@@ -26,7 +26,6 @@ export function attachDecisionReconciliation<T extends TextResult>(
   decisions: Array<Partial<DecisionRecord> & { id: string; status: string }>,
   result: T,
 ): T {
-  if (!RECONCILE_ENABLED()) return result;
   const pending: Array<{ id: string; state: string; last_verdict: string }> = [];
   for (const d of decisions) {
     if (d.status !== "active") continue;
@@ -52,7 +51,6 @@ export function decisionDisplayState(
   ctx: RepoContext,
   d: Partial<DecisionRecord> & { id: string; status: string },
 ): string {
-  if (!RECONCILE_ENABLED()) return d.status;
   const refs = governedRefs(ctx, d.id);
   if (refs.length === 0) return displayState(d.status, "unknown");
   const current = hashGovernedSource(ctx.repoPath, refs);

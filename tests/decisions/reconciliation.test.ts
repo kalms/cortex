@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { hashGovernedSource, displayState, RECONCILE_ENABLED, refToFile } from "../../src/decisions/reconciliation.js";
+import { hashGovernedSource, displayState, refToFile } from "../../src/decisions/reconciliation.js";
 
 function repoWith(files: Record<string, string>): string {
   const dir = mkdtempSync(join(tmpdir(), "gov-"));
@@ -113,19 +113,6 @@ describe("displayState", () => {
     ["proposed", "drift", "proposed"],
   ])("status=%s verdict=%s → %s", (status, verdict, expected) => {
     expect(displayState(status, verdict)).toBe(expected);
-  });
-});
-
-describe("RECONCILE_ENABLED", () => {
-  it("is true only when CORTEX_RECONCILE=1", () => {
-    const prev = process.env.CORTEX_RECONCILE;
-    try {
-      process.env.CORTEX_RECONCILE = "1"; expect(RECONCILE_ENABLED()).toBe(true);
-      process.env.CORTEX_RECONCILE = "0"; expect(RECONCILE_ENABLED()).toBe(false);
-      delete process.env.CORTEX_RECONCILE; expect(RECONCILE_ENABLED()).toBe(false);
-    } finally {
-      if (prev === undefined) delete process.env.CORTEX_RECONCILE; else process.env.CORTEX_RECONCILE = prev;
-    }
   });
 });
 

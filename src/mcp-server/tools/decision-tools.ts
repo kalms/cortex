@@ -20,7 +20,7 @@ import { type RepoContext, type RepoContextResolver, deriveProjectName } from ".
 import { freshnessForContext, attachFreshness } from "../freshness.js";
 import type { EventBus } from "../../events/bus.js";
 import { attachDecisionReconciliation, decisionDisplayState, governedRefs } from "../reconciliation-attach.js";
-import { RECONCILE_ENABLED, hashGovernedSource } from "../../decisions/reconciliation.js";
+import { hashGovernedSource } from "../../decisions/reconciliation.js";
 import { RepoPathField, AlternativeSchema, ProvenanceSchema } from "./shared-fields.js";
 import { execAction } from "./exec-action.js";
 
@@ -368,7 +368,6 @@ export async function searchDecisionsAction(
     }
     if (results.length === 0) return empty(`search_decisions(${query})`);
     const okResult = ok(JSON.stringify(results, null, 2));
-    if (!RECONCILE_ENABLED()) return okResult;
     const rawForAttach = results
       .map((r) => ctx.decisionsRepo.get(r.id))
       .filter((d): d is NonNullable<typeof d> => d != null);
@@ -530,7 +529,6 @@ export async function whyWasThisBuiltAction(
       return attachWhyFreshness(ctx, empty(`why_was_this_built(${qualified_name})`));
     }
     const okResult = ok(JSON.stringify(results, null, 2));
-    if (!RECONCILE_ENABLED()) return attachWhyFreshness(ctx, okResult);
     const rawForAttach = results
       .map((r) => ctx.decisionsRepo.get(r.id))
       .filter((d): d is NonNullable<typeof d> => d != null);
