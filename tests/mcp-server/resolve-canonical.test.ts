@@ -3,7 +3,11 @@ import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "nod
 import { execSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { RepoContextResolver, RepoNotIndexedError } from "../../src/mcp-server/repo-context.js";
+import {
+  RepoContextResolver,
+  RepoNotIndexedError,
+  WorktreeIndexPendingError,
+} from "../../src/mcp-server/repo-context.js";
 
 function indexedGitRepo(): string {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "cortex-resolve-")));
@@ -34,23 +38,48 @@ describe("resolve() — canonical routing", () => {
     expect(resolver.resolve(sub).repoPath).toBe(root);
   });
 
-  it("resolves a worktree to itself (checkout axis), not the canonical root", () => {
+  it("resolves a worktree to itself (checkout axis), not the canonical root, when it has its own store", () => {
     // Two-axis model: the graph/store side no longer collapses a linked
     // worktree onto the canonical repo. `worktreeOf` still exposes the
-    // canonical root for callers that need repo identity. The worktree here
-    // has no `.cortex/` of its own, so the Stage 1 transitional fallback in
-    // resolveGraphDbForRead serves the canonical repo's store — surfaced via
-    // servedFrom: "canonical".
+    // canonical root for callers that need repo identity.
     const root = indexedGitRepo();
     cleanupPaths.push(root);
     const wt = realpathSync(mkdtempSync(join(tmpdir(), "cortex-resolve-wt-")));
     cleanupPaths.push(wt);
     execSync(`git -C "${root}" worktree add -q "${wt}"`);
+    mkdirSync(join(wt, ".cortex"));
+    writeFileSync(join(wt, ".cortex", "db"), "");
     const resolver = new RepoContextResolver({ poolCapacity: 4 });
     const ctx = resolver.resolve(wt);
     expect(ctx.repoPath).toBe(wt);
     expect(ctx.worktreeOf).toBe(root);
-    expect(ctx.servedFrom).toBe("canonical");
+  });
+
+  it("refuses (never falls back to the canonical root) when the worktree has no store of its own — strict reads", () => {
+    // Re-fixtured: this used to assert the Stage 1 transitional fallback
+    // served the canonical repo's store here (`servedFrom: "canonical"`).
+    // That fallback — and the field annotating it — is gone. A worktree with
+    // nothing of its own is refused even though `root` is fully indexed.
+    const root = indexedGitRepo();
+    cleanupPaths.push(root);
+    const wt = realpathSync(mkdtempSync(join(tmpdir(), "cortex-resolve-wt-")));
+    cleanupPaths.push(wt);
+    execSync(`git -C "${root}" worktree add -q "${wt}"`);
+    const prevAutoIndex = process.env.CORTEX_AUTO_INDEX;
+    process.env.CORTEX_AUTO_INDEX = "0"; // no real background index against a scratch fixture
+    try {
+      const resolver = new RepoContextResolver({ poolCapacity: 4 });
+      try {
+        resolver.resolve(wt);
+        throw new Error("should have thrown");
+      } catch (e) {
+        expect(e).toBeInstanceOf(RepoNotIndexedError);
+        expect(e).not.toBeInstanceOf(WorktreeIndexPendingError);
+      }
+    } finally {
+      if (prevAutoIndex === undefined) delete process.env.CORTEX_AUTO_INDEX;
+      else process.env.CORTEX_AUTO_INDEX = prevAutoIndex;
+    }
   });
 
   it("serves an indexed non-git directory (no NotAGitRepoError)", () => {
@@ -65,7 +94,14 @@ describe("resolve() — canonical routing", () => {
   it("throws RepoNotIndexedError for a non-git dir with no store", () => {
     const dir = realpathSync(mkdtempSync(join(tmpdir(), "cortex-nogit-empty-")));
     cleanupPaths.push(dir);
-    const resolver = new RepoContextResolver({ poolCapacity: 4 });
-    expect(() => resolver.resolve(dir)).toThrow(RepoNotIndexedError);
+    const prevAutoIndex = process.env.CORTEX_AUTO_INDEX;
+    process.env.CORTEX_AUTO_INDEX = "0"; // no real background index against a scratch fixture
+    try {
+      const resolver = new RepoContextResolver({ poolCapacity: 4 });
+      expect(() => resolver.resolve(dir)).toThrow(RepoNotIndexedError);
+    } finally {
+      if (prevAutoIndex === undefined) delete process.env.CORTEX_AUTO_INDEX;
+      else process.env.CORTEX_AUTO_INDEX = prevAutoIndex;
+    }
   });
 });

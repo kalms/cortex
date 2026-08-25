@@ -29,6 +29,23 @@ function projectSlug(absPath: string): string {
 }
 
 /**
+ * Run `fn` with CORTEX_AUTO_INDEX disabled. resolve() on an unindexed
+ * checkout now kicks a REAL detached `cortex index` (see kickBackgroundIndex
+ * in repo-context.ts); tests that only assert the thrown error SHAPE must
+ * not let a real indexer loose on a scratch fixture.
+ */
+function withAutoIndexDisabled<T>(fn: () => T): T {
+  const prev = process.env.CORTEX_AUTO_INDEX;
+  process.env.CORTEX_AUTO_INDEX = "0";
+  try {
+    return fn();
+  } finally {
+    if (prev === undefined) delete process.env.CORTEX_AUTO_INDEX;
+    else process.env.CORTEX_AUTO_INDEX = prev;
+  }
+}
+
+/**
  * Seed a registry entry in the master registry (~/.cache/cortex-indexer/_registry.db).
  * listKnownRepos / list_projects enumerate from the registry now. Returns the
  * slug so teardown can remove it.
@@ -115,7 +132,9 @@ describe("RepoContextResolver.resolve — error paths", () => {
     const dir = mkdtempSync(join(tmpdir(), "not-a-repo-"));
     const resolver = new RepoContextResolver({ poolCapacity: 8 });
     try {
-      expect(() => resolver.resolve(dir)).toThrow(RepoNotIndexedError);
+      withAutoIndexDisabled(() => {
+        expect(() => resolver.resolve(dir)).toThrow(RepoNotIndexedError);
+      });
     } finally {
       resolver.shutdown();
     }
@@ -126,13 +145,15 @@ describe("RepoContextResolver.resolve — error paths", () => {
     execSync(`git init -q "${root}"`);
     const resolver = new RepoContextResolver({ poolCapacity: 8 });
     try {
-      try {
-        resolver.resolve(root);
-        throw new Error("should have thrown");
-      } catch (e) {
-        expect(e).toBeInstanceOf(RepoNotIndexedError);
-        expect((e as RepoNotIndexedError).availableProjects).toBeDefined();
-      }
+      withAutoIndexDisabled(() => {
+        try {
+          resolver.resolve(root);
+          throw new Error("should have thrown");
+        } catch (e) {
+          expect(e).toBeInstanceOf(RepoNotIndexedError);
+          expect((e as RepoNotIndexedError).availableProjects).toBeDefined();
+        }
+      });
     } finally {
       resolver.shutdown();
     }
@@ -247,6 +268,11 @@ describe("RepoContextResolver.resolve — checkout axis (worktrees no longer col
     execSync(
       `git -C "${canonical}" worktree add --quiet "${wtDir}" -b wt-test-branch-${Date.now()}`,
     );
+    // Strict reads: give the worktree its OWN store too, so resolve()
+    // succeeds without needing (and without being able to use) the Stage 1
+    // cross-checkout fallback, which is gone.
+    mkdirSync(join(wtDir, ".cortex"));
+    writeFileSync(join(wtDir, ".cortex", "db"), "");
 
     const resolver = new RepoContextResolver({ poolCapacity: 8 });
     try {
@@ -273,15 +299,17 @@ describe("RepoContextResolver.resolve — checkout axis (worktrees no longer col
     execSync(
       `git -C "${canonical}" worktree add --quiet "${wtDir}" -b wt-dedupe-branch-${Date.now()}`,
     );
+    // Strict reads: the worktree needs its own store to resolve at all now —
+    // there is no cross-checkout fallback to ride on.
+    mkdirSync(join(wtDir, ".cortex"));
+    writeFileSync(join(wtDir, ".cortex", "db"), "");
 
     const resolver = new RepoContextResolver({ poolCapacity: 8 });
     try {
       const ctxFromWorktree = resolver.resolve(wtDir);
       const ctxFromCanonical = resolver.resolve(canonical);
       // Different RepoContext objects — separate pool entries keyed by
-      // checkout, each with its own DB handles (even though the worktree,
-      // having no `.cortex/` of its own, reads back through the Stage 1
-      // fallback to the canonical repo's store).
+      // checkout, each with its own DB handles and its own store.
       expect(ctxFromWorktree).not.toBe(ctxFromCanonical);
     } finally {
       resolver.shutdown();

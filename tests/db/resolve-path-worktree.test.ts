@@ -42,8 +42,14 @@ describe("resolve-path — checkout axis (worktree)", () => {
     expect(resolveDecisionsDbPath(wt)).toBe(resolveDecisionsDbPath(main));
   });
 
-  it("resolveGraphDbForRead falls back to the canonical root db when the worktree has none (Stage 1)", () => {
-    expect(resolveGraphDbForRead(wt)).toBe(join(main, ".cortex", "db"));
+  it("resolveGraphDbForRead returns null when the worktree has no store of its own (no cross-checkout fallback)", () => {
+    // Re-fixtured for strict reads: an earlier "Stage 1" transitional cut
+    // ceded to the canonical root's db here. That fallback is gone — a
+    // checkout with nothing of its own resolves to null even though its
+    // canonical repo (`main`) is fully indexed, and the caller
+    // (RepoContextResolver.resolve) raises RepoNotIndexedError /
+    // WorktreeIndexPendingError rather than silently reading another branch.
+    expect(resolveGraphDbForRead(wt)).toBeNull();
   });
 
   it("resolveGraphDbForRead prefers the worktree store when it is POPULATED", () => {
@@ -52,11 +58,12 @@ describe("resolve-path — checkout axis (worktree)", () => {
     expect(resolveGraphDbForRead(wt)).toBe(join(wt, ".cortex", "db"));
   });
 
-  it("resolveGraphDbForRead falls back to canonical again once the worktree store is removed (Stage 1)", () => {
+  it("resolveGraphDbForRead returns null again once the worktree store is removed, regardless of the canonical repo's store", () => {
+    // Re-fixtured for strict reads (was "falls back to canonical again").
     rmSync(join(wt, ".cortex"), { recursive: true, force: true });
     mkdirSync(join(main, ".cortex"), { recursive: true });
     new BetterSqlite3(join(main, ".cortex", "db")).close();
-    expect(resolveGraphDbForRead(wt)).toBe(join(main, ".cortex", "db"));
+    expect(resolveGraphDbForRead(wt)).toBeNull();
   });
 });
 
@@ -69,13 +76,17 @@ function seedNodes(dbPath: string): void {
 }
 
 /**
- * Regression — finding 1(b). Merely BOOTING the server in a worktree creates
- * an empty `<wt>/.cortex/db` (mkdirSync + `new GraphStore` in src/index.ts).
- * That empty-but-openable file must NOT win over the canonical store, or the
- * Stage 1 cross-checkout fallback silently never fires again for that checkout
- * and every read comes back empty.
+ * Regression — finding 1(b), re-fixtured for strict reads. Merely BOOTING the
+ * server in a worktree creates an empty `<wt>/.cortex/db` (mkdirSync + `new
+ * GraphStore` in src/index.ts). Under the old Stage 1 fallback this
+ * empty-but-openable file had to be specially excluded from "usable" so it
+ * didn't shadow the canonical store. Under strict reads there is no
+ * cross-checkout fallback to shadow: an empty-but-openable checkout store is
+ * simply THIS checkout's own (under-populated) graph and must resolve to
+ * itself uniformly — main checkout, orphan worktree, or worktree-with-an-
+ * indexed-canonical-parent all behave the same way now.
  */
-describe("resolve-path — an EMPTY checkout store must not shadow the canonical one", () => {
+describe("resolve-path — an EMPTY checkout store always resolves to itself", () => {
   let main: string;
   let wt: string;
 
@@ -94,10 +105,13 @@ describe("resolve-path — an EMPTY checkout store must not shadow the canonical
     rmSync(main, { recursive: true, force: true });
   });
 
-  it("a worktree whose own store is present-but-empty still reads the canonical store", () => {
+  it("a worktree whose own store is present-but-empty reads ITS OWN store, never the canonical one", () => {
+    // Re-fixtured for strict reads (was "...still reads the canonical
+    // store"): the empty file is this checkout's own graph, not a stand-in
+    // for its (indexed, populated) canonical parent's.
     mkdirSync(join(wt, ".cortex"), { recursive: true });
     new BetterSqlite3(join(wt, ".cortex", "db")).close(); // valid, zero nodes
-    expect(resolveGraphDbForRead(wt)).toBe(join(main, ".cortex", "db"));
+    expect(resolveGraphDbForRead(wt)).toBe(join(wt, ".cortex", "db"));
   });
 
   it("a MAIN checkout still resolves its own EMPTY store (freshness must see `empty`, not `not indexed`)", () => {
