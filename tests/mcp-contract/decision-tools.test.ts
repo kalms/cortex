@@ -2,6 +2,8 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createHarness, callTool, makeIndexedRepoFixture, countDecisions, type HarnessContext } from "./harness.js";
 import { ResponseSchema } from "../../src/mcp-server/response.js";
 import { rmSync } from "node:fs";
+import { openDecisionsDb } from "../../src/decisions/db.js";
+import { resolveDecisionsDbPath } from "../../src/db/resolve-path.js";
 
 describe("decision-tools contract", () => {
   let h: HarnessContext;
@@ -679,6 +681,37 @@ describe("decision-tools contract", () => {
         expect(resPrimary.content[0].text).not.toContain("uniqueDecisionInB");
       } finally {
         try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
+      }
+    });
+  });
+
+  describe("basis_hash stamping at create", () => {
+    it("stamps basis_hash when the decision governs something", async () => {
+      const res = await callTool(h, "decision", {
+        action: "create", title: "governed", description: "d", rationale: "r",
+        governs: ["src/index.ts"],
+      });
+      const id = JSON.parse(res.content[0].text as string).id as string;
+      const db = openDecisionsDb(resolveDecisionsDbPath(h.repoPath));
+      try {
+        const row = db.prepare("SELECT basis_hash FROM decisions WHERE id=?").get(id) as { basis_hash: string | null };
+        expect(row.basis_hash).toMatch(/^[0-9a-f]{64}$/);
+      } finally {
+        db.close();
+      }
+    });
+
+    it("leaves basis_hash NULL when the decision governs nothing", async () => {
+      const res = await callTool(h, "decision", {
+        action: "create", title: "ungoverned", description: "d", rationale: "r",
+      });
+      const id = JSON.parse(res.content[0].text as string).id as string;
+      const db = openDecisionsDb(resolveDecisionsDbPath(h.repoPath));
+      try {
+        const row = db.prepare("SELECT basis_hash FROM decisions WHERE id=?").get(id) as { basis_hash: string | null };
+        expect(row.basis_hash).toBeNull();
+      } finally {
+        db.close();
       }
     });
   });

@@ -19,8 +19,8 @@ import { frameCandidates } from "../../decisions/seed/frame-candidates.js";
 import { type RepoContext, type RepoContextResolver, deriveProjectName } from "../repo-context.js";
 import { freshnessForContext, attachFreshness } from "../freshness.js";
 import type { EventBus } from "../../events/bus.js";
-import { attachDecisionReconciliation, decisionDisplayState } from "../reconciliation-attach.js";
-import { RECONCILE_ENABLED } from "../../decisions/reconciliation.js";
+import { attachDecisionReconciliation, decisionDisplayState, governedRefs } from "../reconciliation-attach.js";
+import { RECONCILE_ENABLED, hashGovernedSource } from "../../decisions/reconciliation.js";
 import { RepoPathField, AlternativeSchema, ProvenanceSchema } from "./shared-fields.js";
 import { execAction } from "./exec-action.js";
 
@@ -194,6 +194,15 @@ export async function createDecisionAction(
     const { repo_path: _repoPath, thread, ...createArgs } = args;
     const origin = captureOrigin(ctx.repoPath, thread ?? null);
     const decision = serviceForCtx(ctx, bus, indexerProject).create({ ...createArgs, origin });
+    // basis_hash must be computed AFTER the GOVERNS links created above have
+    // landed (create() writes them synchronously) — otherwise governedRefs
+    // returns [] and every decision gets the same meaningless digest.
+    // ctx.repoPath is the CHECKOUT root (2.0.0 two-axis split) — never the
+    // canonical root. See tests/decisions/basis-anchoring.test.ts.
+    const refs = governedRefs(ctx, decision.id);
+    if (refs.length > 0) {
+      ctx.decisionsRepo.update(decision.id, { basis_hash: hashGovernedSource(ctx.repoPath, refs) });
+    }
     return ok(JSON.stringify(decision, null, 2));
   });
 }
@@ -215,6 +224,13 @@ export async function proposeDecisionAction(
     const { repo_path: _repoPath, thread, ...proposeArgs } = args;
     const origin = captureOrigin(ctx.repoPath, thread ?? null);
     const d = serviceForCtx(ctx, bus, indexerProject).propose({ ...proposeArgs, origin });
+    // Same ordering + anchoring rules as createDecisionAction above:
+    // propose() writes GOVERNS links synchronously before returning, and
+    // ctx.repoPath is the checkout root the basis must be anchored to.
+    const refs = governedRefs(ctx, d.id);
+    if (refs.length > 0) {
+      ctx.decisionsRepo.update(d.id, { basis_hash: hashGovernedSource(ctx.repoPath, refs) });
+    }
     return ok(JSON.stringify(d, null, 2));
   });
 }

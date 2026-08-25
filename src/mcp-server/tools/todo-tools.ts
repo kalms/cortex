@@ -9,6 +9,7 @@ import { validatePrimitiveFields } from "./decision-input-validation.js";
 import { registerTool, type RepoContext, type RepoContextResolver } from "../repo-context.js";
 import type { EventBus } from "../../events/bus.js";
 import { RepoPathField } from "./shared-fields.js";
+import { hashGovernedSource, type GovernedRef } from "../../decisions/reconciliation.js";
 
 const todoShape = {
   repo_path: RepoPathField,
@@ -40,18 +41,31 @@ const todoShape = {
 const todoSchema = z.object(todoShape);
 type TodoArgs = z.infer<typeof todoSchema>;
 
-const todoServiceFor = (ctx: RepoContext, projectId: string | null, bus?: EventBus): TodoService =>
-  new TodoService({
-    db: ctx.decisionsDb,
-    todos: new TodosRepository(ctx.decisionsDb),
-    links: new TodoLinksRepository(ctx.decisionsDb),
-    bus,
-    project_id: projectId ?? "",
-  });
+interface TodoServiceBundle {
+  service: TodoService;
+  todos: TodosRepository;
+  links: TodoLinksRepository;
+}
+
+const todoServiceFor = (ctx: RepoContext, projectId: string | null, bus?: EventBus): TodoServiceBundle => {
+  const todos = new TodosRepository(ctx.decisionsDb);
+  const links = new TodoLinksRepository(ctx.decisionsDb);
+  const service = new TodoService({ db: ctx.decisionsDb, todos, links, bus, project_id: projectId ?? "" });
+  return { service, todos, links };
+};
 
 function need<T>(v: T | undefined, action: string, field: string): T {
   if (v === undefined) throw new Error(`todo(${action}) requires '${field}'`);
   return v;
+}
+
+/** GOVERNS-only refs for a todo, in the shape hashGovernedSource expects.
+ *  Mirrors governedRefs() in reconciliation-attach.ts (the decision-side
+ *  equivalent), but reads from the todo links table. */
+function governedTodoRefs(links: TodoLinksRepository, todoId: string): GovernedRef[] {
+  return links.findByTodo(todoId)
+    .filter((l) => l.relation === "GOVERNS")
+    .map((l) => ({ target_kind: l.target_kind, target_ref: l.target_ref }));
 }
 
 export const todoHandler = (resolver: RepoContextResolver, indexerProject: string | null = null, bus?: EventBus) =>
@@ -69,39 +83,45 @@ export const todoHandler = (resolver: RepoContextResolver, indexerProject: strin
       const svc = todoServiceFor(ctx, indexerProject, bus);
       try {
         switch (args.action) {
-          case "propose":
-            return ok(
-              JSON.stringify(
-                svc.propose({
-                  summary: need(args.summary, "propose", "summary"),
-                  description: args.description,
-                  proposed_by: args.proposed_by,
-                  governs: args.governs,
-                  spawns_from: args.spawns_from,
-                  blocked_by: args.blocked_by,
-                  // captureOrigin is called HERE, in the handler, on
-                  // ctx.repoPath (the checkout root) — never in the
-                  // service, which stays free of git dependencies.
-                  origin: captureOrigin(ctx.repoPath, args.thread ?? null),
-                }),
-                null,
-                2,
-              ),
-            );
+          case "propose": {
+            const created = svc.service.propose({
+              summary: need(args.summary, "propose", "summary"),
+              description: args.description,
+              proposed_by: args.proposed_by,
+              governs: args.governs,
+              spawns_from: args.spawns_from,
+              blocked_by: args.blocked_by,
+              // captureOrigin is called HERE, in the handler, on
+              // ctx.repoPath (the checkout root) — never in the
+              // service, which stays free of git dependencies.
+              origin: captureOrigin(ctx.repoPath, args.thread ?? null),
+            });
+            // basis_hash must be computed AFTER the GOVERNS links written by
+            // propose() above have landed, or governedTodoRefs returns []
+            // and the todo gets the same meaningless digest as one that
+            // governs nothing. ctx.repoPath is the CHECKOUT root (2.0.0
+            // two-axis split) — never the canonical root. See
+            // tests/decisions/basis-anchoring.test.ts.
+            const refs = governedTodoRefs(svc.links, created.id);
+            if (refs.length > 0) {
+              svc.todos.update(created.id, { basis_hash: hashGovernedSource(ctx.repoPath, refs) });
+            }
+            return ok(JSON.stringify(created, null, 2));
+          }
           case "get": {
-            const t = svc.getWithRefs(need(args.id, "get", "id"));
+            const t = svc.service.getWithRefs(need(args.id, "get", "id"));
             return t ? ok(JSON.stringify(t, null, 2)) : empty(`todo(get ${args.id})`);
           }
           case "list":
-            return ok(JSON.stringify(svc.list(), null, 2));
+            return ok(JSON.stringify(svc.service.list(), null, 2));
           case "search": {
-            const r = svc.search(need(args.query, "search", "query"));
+            const r = svc.service.search(need(args.query, "search", "query"));
             return r.length ? ok(JSON.stringify(r, null, 2)) : empty(`todo(search ${args.query})`);
           }
           case "update":
             return ok(
               JSON.stringify(
-                svc.update(need(args.id, "update", "id"), {
+                svc.service.update(need(args.id, "update", "id"), {
                   summary: args.summary,
                   description: args.description,
                   assignee: args.assignee,
@@ -112,7 +132,7 @@ export const todoHandler = (resolver: RepoContextResolver, indexerProject: strin
               ),
             );
           case "link":
-            svc.link({
+            svc.service.link({
               todo_id: need(args.id, "link", "id"),
               target: need(args.target, "link", "target"),
               relation: need(args.relation, "link", "relation"),
@@ -123,7 +143,7 @@ export const todoHandler = (resolver: RepoContextResolver, indexerProject: strin
           case "transition":
             return ok(
               JSON.stringify(
-                svc.transition(need(args.id, "transition", "id"), {
+                svc.service.transition(need(args.id, "transition", "id"), {
                   to: need(args.to, "transition", "to"),
                   reason: args.reason,
                   resolved_by: args.resolved_by,
