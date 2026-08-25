@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { resolve, join } from "node:path";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
+import BetterSqlite3 from "better-sqlite3";
 import { runIndexCommand } from "../../../src/cli/commands/index.js";
 import { loadContext, deriveProjectName } from "../../../src/cli/context.js";
 import { Registry } from "../../../src/db/registry.js";
@@ -111,6 +112,31 @@ describe("cli integration — checkout-axis indexing", () => {
     expect(existsSync(join(wt, ".cortex", "db"))).toBe(true);
     expect(existsSync(join(main, ".cortex", "db"))).toBe(false);
   }, 30_000);
+
+  // Regression: ruevu/cortex#81. A live store written before the indexer grew
+  // ctx_projects.extract_schema used to fail at publish — AFTER the run had
+  // printed its node and frame counts — so the freshly built index was
+  // discarded and the stale graph stayed live, silently.
+  it("publishes into a live store that predates an indexer column addition", async () => {
+    await runIndexCommand({ command: ".", positionals: [wt], flags: {} }, loadContext(wt));
+    const dbPath = join(wt, ".cortex", "db");
+
+    // Age the live store back to the pre-extract_schema shape.
+    const down = new BetterSqlite3(dbPath);
+    down.exec("ALTER TABLE ctx_projects DROP COLUMN extract_schema");
+    down.prepare("UPDATE ctx_projects SET indexed_at = '1970-01-01T00:00:00Z'").run();
+    down.close();
+
+    await runIndexCommand({ command: ".", positionals: [wt], flags: {} }, loadContext(wt));
+
+    const db = new BetterSqlite3(dbPath, { readonly: true });
+    const cols = (db.pragma("table_info(ctx_projects)") as Array<{ name: string }>).map((c) => c.name);
+    expect(cols).toContain("extract_schema");
+    // The publish actually landed — not the stale row the downgrade left behind.
+    const row = db.prepare("SELECT indexed_at FROM ctx_projects").get() as { indexed_at: string };
+    expect(row.indexed_at).not.toBe("1970-01-01T00:00:00Z");
+    db.close();
+  }, 60_000);
 
   it("registers a worktree with its parent and branch", async () => {
     const regPath = join(base, "registry.db");

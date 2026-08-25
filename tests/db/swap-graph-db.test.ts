@@ -110,4 +110,97 @@ describe("publishStagedDb", () => {
     expect(db.pragma("integrity_check", { simple: true })).toBe("ok");
     db.close();
   });
+  // ─── schema reconciliation (ruevu/cortex#81) ────────────────────────────────
+  // `CREATE TABLE IF NOT EXISTS` cannot widen a table that already exists, so a
+  // live store written before a C-indexer column addition used to fail the row
+  // copy — discarding a fully built index and leaving the stale graph live.
+
+  const PROJECTS_V1 = "CREATE TABLE ctx_projects (name TEXT PRIMARY KEY, indexed_at TEXT NOT NULL, root_path TEXT NOT NULL)";
+  const PROJECTS_V2 = PROJECTS_V1.replace("root_path TEXT NOT NULL)", "root_path TEXT NOT NULL, extract_schema INTEGER NOT NULL DEFAULT 0)");
+
+  it("widens a live table the indexer has since added a column to, and publishes", () => {
+    const ldb = new BetterSqlite3(live);
+    ldb.exec(PROJECTS_V1);
+    ldb.prepare("INSERT INTO ctx_projects VALUES ('p','2026-08-24T00:00:00Z','/old')").run();
+    ldb.close();
+    const sdb = new BetterSqlite3(stage);
+    sdb.exec(PROJECTS_V2);
+    sdb.prepare("INSERT INTO ctx_projects VALUES ('p','2026-08-25T00:00:00Z','/new',1)").run();
+    sdb.close();
+
+    expect(() => publishStagedDb({ stagePath: stage, liveDbPath: live })).not.toThrow();
+
+    const db = new BetterSqlite3(live, { readonly: true });
+    const row = db.prepare("SELECT * FROM ctx_projects").get() as Record<string, unknown>;
+    expect(row.extract_schema).toBe(1);
+    expect(row.indexed_at).toBe("2026-08-25T00:00:00Z"); // the NEW index is live, not the old one
+    expect(db.pragma("integrity_check", { simple: true })).toBe("ok");
+    db.close();
+  });
+
+  it("adding a column in place keeps the live table's indexes and live-only columns", () => {
+    const ldb = new BetterSqlite3(live);
+    ldb.exec("ALTER TABLE nodes ADD COLUMN annotation TEXT"); // live-only, from a lazy migration
+    ldb.exec("CREATE INDEX idx_nodes_name ON nodes(name)");
+    ldb.close();
+    const sdb = new BetterSqlite3(stage);
+    sdb.exec(NODES_DDL.replace("project TEXT)", "project TEXT, signature TEXT NOT NULL DEFAULT '')"));
+    sdb.prepare("INSERT INTO nodes (id,kind,name,created_at,updated_at,signature) VALUES ('n1','file','n1','t','t','sig')").run();
+    sdb.close();
+
+    publishStagedDb({ stagePath: stage, liveDbPath: live });
+
+    const db = new BetterSqlite3(live, { readonly: true });
+    const cols = (db.pragma("table_info(nodes)") as Array<{ name: string }>).map((c) => c.name);
+    expect(cols).toContain("signature");  // staging's addition arrived
+    expect(cols).toContain("annotation"); // the live-only column survived
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_nodes_name'").get()).toBeTruthy();
+    expect((db.prepare("SELECT signature s FROM nodes WHERE id='n1'").get() as { s: string }).s).toBe("sig");
+    expect(db.pragma("integrity_check", { simple: true })).toBe("ok");
+    db.close();
+  });
+
+  it("rebuilds the live table when the new column cannot be added in place, replaying its indexes", () => {
+    // SQLite refuses ADD COLUMN for NOT NULL with no default — the only way to
+    // take this column is to rebuild the table from staging's DDL.
+    const ldb = new BetterSqlite3(live);
+    ldb.exec("CREATE INDEX idx_nodes_name ON nodes(name)");
+    ldb.close();
+    const sdb = new BetterSqlite3(stage);
+    sdb.exec(NODES_DDL.replace("project TEXT)", "project TEXT, digest TEXT NOT NULL)"));
+    sdb.prepare("INSERT INTO nodes (id,kind,name,created_at,updated_at,digest) VALUES ('n1','file','n1','t','t','d1')").run();
+    sdb.close();
+
+    publishStagedDb({ stagePath: stage, liveDbPath: live });
+
+    const db = new BetterSqlite3(live, { readonly: true });
+    const cols = (db.pragma("table_info(nodes)") as Array<{ name: string }>).map((c) => c.name);
+    expect(cols).toContain("digest");
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_nodes_name'").get()).toBeTruthy();
+    expect((db.prepare("SELECT count(*) c FROM nodes").get() as { c: number }).c).toBe(1);
+    expect(db.prepare("SELECT 1 FROM nodes WHERE id='old'").get()).toBeUndefined();
+    expect(db.pragma("integrity_check", { simple: true })).toBe("ok");
+    db.close();
+  });
+
+  it("rebuilds when a live-only NOT NULL column could never be filled by the copy", () => {
+    // The mirror case: the indexer DROPPED a column the live table still
+    // requires. Copying staging's columns alone would violate it on every row.
+    const ldb = new BetterSqlite3(live);
+    ldb.exec("CREATE TABLE meta (k TEXT PRIMARY KEY, v TEXT, legacy TEXT NOT NULL)");
+    ldb.prepare("INSERT INTO meta VALUES ('old','old','l')").run();
+    ldb.close();
+    const sdb = new BetterSqlite3(stage);
+    sdb.exec("CREATE TABLE meta (k TEXT PRIMARY KEY, v TEXT)");
+    sdb.prepare("INSERT INTO meta VALUES ('a','b')").run();
+    sdb.close();
+
+    expect(() => publishStagedDb({ stagePath: stage, liveDbPath: live })).not.toThrow();
+
+    const db = new BetterSqlite3(live, { readonly: true });
+    expect((db.pragma("table_info(meta)") as Array<{ name: string }>).map((c) => c.name)).toEqual(["k", "v"]);
+    expect((db.prepare("SELECT v FROM meta WHERE k='a'").get() as { v: string }).v).toBe("b");
+    expect(db.pragma("integrity_check", { simple: true })).toBe("ok");
+    db.close();
+  });
 });

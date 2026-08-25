@@ -22,6 +22,14 @@ export interface PublishResult {
  * a page-size mismatch between staging (64 KiB, C writer) and live (4 KiB,
  * libsqlite3 default) is irrelevant.
  *
+ * `CREATE TABLE IF NOT EXISTS` cannot widen a live table that already exists,
+ * so a column the C indexer has since ADDED (e.g. ctx_projects.extract_schema)
+ * would leave the row copy naming a column the live table lacks — the publish
+ * throws and the freshly built index is discarded while a stale graph stays
+ * live (ruevu/cortex#81). `reconcileSchema` closes that: it widens the live
+ * table with ALTER TABLE ... ADD COLUMN, and falls back to rebuilding it from
+ * staging's DDL when a column cannot be expressed that way.
+ *
  * FTS5 virtual tables (e.g. ctx_nodes_fts) are a special case: a *contentless*
  * FTS5 index cannot be copied across databases via SQL — its shadow tables
  * (_data/_idx/_docsize/_config) are write-protected, and a contentless table
@@ -66,6 +74,7 @@ export function publishStagedDb(opts: { stagePath: string; liveDbPath: string })
             .prepare("SELECT sql FROM stage.sqlite_master WHERE type='table' AND name=?")
             .get(t) as { sql: string };
           db.exec(createSql.replace(/CREATE TABLE/i, "CREATE TABLE IF NOT EXISTS"));
+          reconcileSchema(db, t, createSql);
           const cols = (db.prepare(`PRAGMA stage.table_info(${q(t)})`).all() as Array<{ name: string }>)
             .map((c) => q(c.name));
           db.exec(`DELETE FROM main.${q(t)}`);
@@ -103,6 +112,78 @@ export function publishStagedDb(opts: { stagePath: string; liveDbPath: string })
   } finally {
     db.close();
   }
+}
+
+interface ColumnInfo {
+  name: string;
+  type: string;
+  notnull: number;
+  dflt_value: string | null;
+  pk: number;
+}
+
+/**
+ * Make the live table able to receive staging's columns, in place, before the
+ * row copy.
+ *
+ * The copy names staging's columns explicitly, so it throws unless the live
+ * table has every one of them — and `CREATE TABLE IF NOT EXISTS` is a no-op
+ * against an existing table, so a live store written before a C-indexer schema
+ * upgrade never gains the new column on its own. That is issue #81: a store
+ * predating `ctx_projects.extract_schema` fails at publish *after* the index
+ * has been built, so the run reports what it built and then discards it.
+ *
+ * The default path is additive — `ALTER TABLE ... ADD COLUMN` per missing
+ * column — because it preserves both the live table's indexes and any
+ * live-only column a lazy migration added. SQLite refuses ADD COLUMN for a
+ * PRIMARY KEY or for NOT NULL with no default; for those, and for the mirror
+ * case (a live-only NOT NULL column with no default, which the copy could
+ * never fill), the table is rebuilt from staging's DDL instead. A rebuild
+ * drops the table's indexes with it, so their DDL is replayed afterwards.
+ *
+ * Contents are replaced wholesale either way, so nothing is lost by a rebuild
+ * beyond schema the live store alone knew about.
+ */
+function reconcileSchema(db: BetterSqlite3.Database, table: string, stageCreateSql: string): void {
+  const stageCols = db.prepare(`PRAGMA stage.table_info(${q(table)})`).all() as ColumnInfo[];
+  const liveCols = db.prepare(`PRAGMA main.table_info(${q(table)})`).all() as ColumnInfo[];
+  const liveNames = new Set(liveCols.map((c) => c.name));
+  const stageNames = new Set(stageCols.map((c) => c.name));
+
+  const missing = stageCols.filter((c) => !liveNames.has(c.name));
+  // A live-only NOT NULL column with no default cannot be satisfied by a copy
+  // that names staging's columns only — every row would violate it.
+  const unfillable = liveCols.some(
+    (c) => !stageNames.has(c.name) && c.notnull === 1 && c.dflt_value === null,
+  );
+  if (missing.length === 0 && !unfillable) return;
+
+  if (!unfillable && missing.every(isAddable)) {
+    for (const c of missing) db.exec(`ALTER TABLE main.${q(table)} ADD COLUMN ${columnDecl(c)}`);
+    return;
+  }
+
+  const indexes = db
+    .prepare("SELECT sql FROM main.sqlite_master WHERE type='index' AND tbl_name=? AND sql IS NOT NULL")
+    .all(table) as Array<{ sql: string }>;
+  db.exec(`DROP TABLE main.${q(table)}`);
+  db.exec(stageCreateSql); // unqualified CREATE lands in main, not the attached stage
+  for (const ix of indexes) {
+    try { db.exec(ix.sql); } catch { /* index over a column staging dropped — it goes with it */ }
+  }
+}
+
+/** SQLite refuses ADD COLUMN for a PRIMARY KEY, or for NOT NULL with no default. */
+function isAddable(c: ColumnInfo): boolean {
+  return c.pk === 0 && (c.notnull === 0 || c.dflt_value !== null);
+}
+
+/** Rebuild a column definition from PRAGMA table_info, for ADD COLUMN. */
+function columnDecl(c: ColumnInfo): string {
+  let decl = c.type ? `${q(c.name)} ${c.type}` : q(c.name);
+  if (c.notnull === 1) decl += " NOT NULL";
+  if (c.dflt_value !== null) decl += ` DEFAULT ${c.dflt_value}`;
+  return decl;
 }
 
 /** Quote a SQLite identifier. */

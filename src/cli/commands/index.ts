@@ -115,13 +115,18 @@ export async function runIndexCommand(cmd: IndexCommand, ctx: ProjectContext): P
           return;
         }
         spinner.succeed(`indexed ${project}`);
-        process.stdout.write(renderIndexerResult(result) + "\n");
+
+        // Hold the report until the publish commits. Everything below describes
+        // the STAGING db, which a failed publish discards — printing node and
+        // frame counts first made a discarded index read as a delivered one
+        // (ruevu/cortex#81), and hid two separate defects for a session each.
+        const report = [renderIndexerResult(result)];
 
         // Frames + contracts build INTO staging, so the published graph is complete.
         const frames = await runFrameExtraction({ repoPath, project, dbPath: stagePath });
-        process.stdout.write(renderFramesLine(frames) + "\n");
+        report.push(renderFramesLine(frames));
         const contracts = await runContractExtraction({ repoPath, project, dbPath: stagePath });
-        process.stdout.write(renderContractsLine(contracts) + "\n");
+        report.push(renderContractsLine(contracts));
 
         // Checkpoint staging, then publish its contents into the canonical db via
         // one libsqlite3 transaction (corruption-impossible; visible to open handles).
@@ -130,6 +135,7 @@ export async function runIndexCommand(cmd: IndexCommand, ctx: ProjectContext): P
           try { conn.pragma("wal_checkpoint(TRUNCATE)"); } finally { conn.close(); }
         } catch { /* non-fatal */ }
         publishStagedDb({ stagePath, liveDbPath: dbPath });
+        process.stdout.write(report.join("\n") + "\n"); // published — now the counts are true
 
         captureIndexMeta(dbPath, repoPath); // freshness baseline on the canonical path
 

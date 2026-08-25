@@ -18,6 +18,41 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [2.0.2] — 2026-08-25
+
+### Fixed
+
+- **Indexing a store older than the indexer's schema built the whole graph,
+  reported it, and then threw it away.** `publishStagedDb` created each live
+  table with `CREATE TABLE IF NOT EXISTS` — a no-op when the table already
+  exists — so a live `.cortex/db` written before `cortex-indexer` grew
+  `ctx_projects.extract_schema` never gained the column, and the row copy died
+  on `table main.ctx_projects has no column named extract_schema`. The
+  transaction rolled back, so nothing was corrupted; the freshly built index
+  was simply discarded and the stale graph stayed live, which is the harder
+  failure to notice. `reconcileSchema` now widens the live table before the
+  copy — additively via `ALTER TABLE … ADD COLUMN`, so its indexes and any
+  live-only column a lazy migration added both survive, and by rebuilding from
+  staging's DDL (index DDL replayed) for the columns SQLite refuses to add in
+  place. Closes [#81](https://github.com/ruevu/cortex/issues/81).
+- **`cortex index` printed its node and frame counts before the publish that
+  could discard them.** `status: "indexed"`, the node/edge counts and the
+  `frames:` line all describe the *staging* database, and were written several
+  steps before it was published — so a failed publish emitted a detailed
+  success report and then an error, with the report describing a database that
+  no longer existed. `kickBackgroundIndex` compounds it: it spawns the index
+  detached behind a 60-minute sentinel, with output going to a log nobody
+  opens. The report is now held until the publish commits, so it only ever
+  describes the graph a reader will actually get.
+- **`tests/hooks/brief-edit.test.ts` tested the wrong binary whenever
+  `CORTEX_BIN` was set.** `runHook` inherited `process.env` and prepended a
+  fake `cortex` to PATH, but the hook resolves `CORTEX_BIN` *ahead* of PATH —
+  so the real CLI briefed a throwaway temp repo, returned nothing, and the hook
+  allowed. Only the two deny-expecting cases failed; the other ten pass either
+  way. Mesh exports `CORTEX_BIN` into every agent session it spawns, so this
+  was red on a developer machine and green in CI, which is why it lasted. The
+  three variables the hook reads are now scrubbed before `opts.env` is applied.
+
 ## [2.0.1] — 2026-08-25
 
 ### Fixed
@@ -2072,6 +2107,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[2.0.2]: https://github.com/ruevu/cortex/releases/tag/v2.0.2
 [2.0.1]: https://github.com/ruevu/cortex/releases/tag/v2.0.1
 [2.0.0]: https://github.com/ruevu/cortex/releases/tag/v2.0.0
 [1.12.1]: https://github.com/ruevu/cortex/releases/tag/v1.12.1
