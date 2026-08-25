@@ -4,6 +4,14 @@ import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { venvDir, venvPythonBin, hasVenv, setupVenv, ensureVenv } from "../../src/frame-extraction/venv.js";
 
+/** A venv complete enough for hasVenv(): the interpreter AND the package the
+ *  clusterer imports first. Stubbing only bin/python is a half-venv. */
+function stubVenv(root: string): void {
+  mkdirSync(join(root, "bin"), { recursive: true });
+  writeFileSync(join(root, "bin", "python"), "");
+  mkdirSync(join(root, "lib", "python3.11", "site-packages", "numpy"), { recursive: true });
+}
+
 describe("venv path resolution", () => {
   const orig = process.env.CORTEX_VENV;
   afterEach(() => {
@@ -29,6 +37,23 @@ describe("venv path resolution", () => {
   it("hasVenv is false when the python bin does not exist", () => {
     process.env.CORTEX_VENV = "/tmp/definitely-not-a-venv-12345";
     expect(hasVenv()).toBe(false);
+  });
+
+  it("hasVenv is false for a venv whose creation died before pip ran", () => {
+    // `python3 -m venv` writes bin/python first. A venv stuck at that point
+    // exists but cannot cluster: it fails every run with ModuleNotFoundError
+    // instead of skipping and being retried.
+    const dir = mkdtempSync(join(tmpdir(), "half-venv-"));
+    process.env.CORTEX_VENV = dir;
+    mkdirSync(join(dir, "bin"), { recursive: true });
+    writeFileSync(join(dir, "bin", "python"), "");
+    try {
+      expect(hasVenv()).toBe(false);
+      stubVenv(dir);
+      expect(hasVenv()).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -75,8 +100,7 @@ describe("ensureVenv", () => {
   });
 
   it("is true and provisions nothing when the venv is already there", () => {
-    mkdirSync(join(home, "python-venv", "bin"), { recursive: true });
-    writeFileSync(venvPythonBin(), "");
+    stubVenv(join(home, "python-venv"));
     let provisioned = false;
     expect(ensureVenv({ onProvision: () => { provisioned = true; } })).toBe(true);
     expect(provisioned).toBe(false);

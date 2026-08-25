@@ -7,7 +7,7 @@
  * Override with CORTEX_VENV for tests / power users.
  */
 import { execFileSync, execSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,7 +23,18 @@ export function venvPythonBin(): string {
 }
 
 export function hasVenv(): boolean {
-  return existsSync(venvPythonBin());
+  if (!existsSync(venvPythonBin())) return false;
+  // `python3 -m venv` creates bin/python before pip installs anything, so a
+  // creation that dies partway leaves a venv that EXISTS and cannot cluster —
+  // every run then fails with ModuleNotFoundError instead of skipping and
+  // retrying, which is strictly worse than having no venv at all. Require the
+  // first thing the clusterer imports, not just the interpreter.
+  const lib = join(venvDir(), "lib");
+  try {
+    return readdirSync(lib).some((py) => existsSync(join(lib, py, "site-packages", "numpy")));
+  } catch {
+    return false;
+  }
 }
 
 export type SetupVenvResult =

@@ -65,6 +65,8 @@ describe("runFrameExtraction gating", () => {
     const fakeVenv = mkdtempSync(join(tmpdir(), "fake-venv-"));
     mkdirSync(join(fakeVenv, "bin"), { recursive: true });
     writeFileSync(join(fakeVenv, "bin", "python"), "");
+    // hasVenv() also requires the clusterer's first import to be present.
+    mkdirSync(join(fakeVenv, "lib", "python3.11", "site-packages", "numpy"), { recursive: true });
     process.env.CORTEX_VENV = fakeVenv;
     try {
       // Non-existent DB → hasFileNodes() returns false → no_files (before any python spawn).
