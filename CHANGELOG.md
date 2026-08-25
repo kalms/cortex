@@ -18,6 +18,23 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [2.0.1] — 2026-08-25
+
+### Fixed
+
+- **The sidecar tarball never carried frame extraction's Python clusterer, so
+  every packaged canvas drew nothing.** `cluster-tfidf-hdbscan.ts` opens
+  `scripts/frame-extraction/python/tfidf_hdbscan.py` by path under the package
+  root, and the tarball's staging step copied `dist`, `src/viewer/dist`,
+  `bin`, `skills` and `hooks` — never `scripts`. Nothing failed loudly:
+  python exits 2 on a missing file, `runFrameExtraction` is contractually
+  never-throws and returns `{status:"failed"}`, and the index reports success
+  anyway. The result is an index with zero `frame_id`s, `/api/frames`
+  answering an empty `200`, and a viewer that renders a blank stage — in every
+  sidecar release to date, 1.9.0 through 2.0.0. `scripts/frame-extraction/python`
+  is now staged, asserted in the smoke test, and added to the tar allowlist;
+  `setup-venv.sh` ships with it, since `venv.ts` execs it by that same path.
+
 ## [2.0.0] — 2026-08-25
 
 **Reads are strict: a checkout is served its own graph, or none.** This
@@ -2055,6 +2072,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[2.0.1]: https://github.com/ruevu/cortex/releases/tag/v2.0.1
 [2.0.0]: https://github.com/ruevu/cortex/releases/tag/v2.0.0
 [1.12.1]: https://github.com/ruevu/cortex/releases/tag/v1.12.1
 [1.12.0]: https://github.com/ruevu/cortex/releases/tag/v1.12.0
