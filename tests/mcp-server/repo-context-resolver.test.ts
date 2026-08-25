@@ -423,4 +423,33 @@ describe("kickBackgroundIndex (via resolve() on an unindexed checkout)", () => {
       resolver.shutdown();
     }
   });
+
+  it("never throws from the kick itself when CORTEX_BIN is unresolvable, and logs the swallowed spawn error", async () => {
+    const checkout = makeUnindexedRepo();
+    const badBin = join(checkout, "no-such-cortex-binary-abc123");
+    const logPath = join(checkout, ".cortex", "auto-index.log");
+
+    const resolver = new RepoContextResolver({ poolCapacity: 8 });
+    try {
+      withEnv({ CORTEX_BIN: badBin, CORTEX_AUTO_INDEX: undefined }, () => {
+        // "Never throws" is about kickBackgroundIndex's own contract: an
+        // unresolvable binary must not crash the process (unhandled 'error'
+        // on the child) or propagate synchronously. resolve() still raises
+        // its documented WorktreeIndexPendingError — kickBackgroundIndex
+        // optimistically returns true once the spawn is issued, and the
+        // ENOENT only surfaces asynchronously afterward.
+        expect(() => resolver.resolve(checkout)).toThrow(WorktreeIndexPendingError);
+      });
+
+      const gotDiagnostic = await waitFor(() => {
+        if (!existsSync(logPath)) return false;
+        return readFileSync(logPath, "utf-8").length > 0;
+      });
+      expect(gotDiagnostic).toBe(true);
+      const content = readFileSync(logPath, "utf-8");
+      expect(content).toContain(badBin);
+    } finally {
+      resolver.shutdown();
+    }
+  });
 });

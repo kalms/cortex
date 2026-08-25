@@ -1,6 +1,6 @@
 import BetterSqlite3 from "better-sqlite3";
 import type Database from "better-sqlite3";
-import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, statSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { join, resolve as resolvePath } from "node:path";
 import type { ZodSchema } from "zod";
@@ -206,10 +206,12 @@ export class WorktreeIndexPendingError extends Error {
 /**
  * Start a detached index for a checkout that has none, mirroring
  * hooks/prefer-cortex.sh's maybe_bg_index — same 60-minute sentinel, same
- * opt-out. Returns true when an index is in flight (just started, or started
- * recently), so the caller can raise WorktreeIndexPendingError instead of a
- * flat "not indexed". Never throws: a failed kick just means the caller gets
- * the plain not-indexed error.
+ * opt-out, same `<checkout>/.cortex/auto-index.log` diagnostic trail (child
+ * stdout/stderr, plus a swallowed spawn-time 'error' event). Returns true
+ * when an index is in flight (just started, or started recently), so the
+ * caller can raise WorktreeIndexPendingError instead of a flat "not
+ * indexed". Never throws: a failed kick just means the caller gets the
+ * plain not-indexed error.
  */
 function kickBackgroundIndex(checkout: string): boolean {
   if (process.env.CORTEX_AUTO_INDEX === "0") return false;
@@ -222,18 +224,48 @@ function kickBackgroundIndex(checkout: string): boolean {
   }
 
   const bin = process.env.CORTEX_BIN ?? "cortex";
+  const logPath = join(checkout, ".cortex", "auto-index.log");
   try {
     mkdirSync(join(checkout, ".cortex"), { recursive: true });
     writeFileSync(sentinel, "");
+    // Mirror hooks/prefer-cortex.sh's maybe_bg_index, which redirects the
+    // spawned index's stdout+stderr to <checkout>/.cortex/auto-index.log
+    // instead of discarding them. Without this, `stdio: "ignore"` plus a
+    // swallowed 'error' event (below) left a broken/missing `bin` (e.g.
+    // `cortex` absent from PATH — reachable when Cortex runs as a sidecar
+    // from a tarball) with zero diagnostic trail: every read just keeps
+    // getting WorktreeIndexPendingError's "retry shortly" for the full
+    // 60-minute sentinel window. Opening the log is best-effort — if it
+    // fails, fall back to the prior silent-but-safe "ignore" behavior
+    // rather than letting a logging problem fail the read.
+    let logFd: number | undefined;
+    try {
+      logFd = openSync(logPath, "a");
+    } catch {
+      logFd = undefined;
+    }
     const child = spawn(bin, ["index", ".", checkout], {
       detached: true,
-      stdio: "ignore",
+      stdio: ["ignore", logFd ?? "ignore", logFd ?? "ignore"],
     });
+    // spawn() dup's the fd into the child synchronously before returning, so
+    // it's safe to close our copy right away (mirrors the pattern in
+    // scripts/corpus/run-survey.ts's runIndex).
+    if (logFd !== undefined) closeSync(logFd);
     // A detached child spawned against an unresolvable/broken `bin` emits an
     // async 'error' event rather than throwing synchronously; with no
     // listener that becomes an unhandled rejection that could crash the
-    // process. Swallow it — "never throws" applies here too.
-    child.on("error", () => {});
+    // process. Swallow it — "never throws" applies here too — but record it
+    // to the same log: this is the one failure stdio redirection above can't
+    // capture, since the child never started and so never wrote anything
+    // itself. Best-effort: a failure to append here must not surface either.
+    child.on("error", (err) => {
+      try {
+        appendFileSync(logPath, `[auto-index] failed to spawn '${bin}': ${err.message}\n`);
+      } catch {
+        /* diagnostic only — never let logging itself throw */
+      }
+    });
     child.unref();
     return true;
   } catch {
