@@ -103,6 +103,20 @@ export const todoHandler = (resolver: RepoContextResolver, indexerProject: strin
           `Field '${bad.field}' contains marker '${bad.marker}'. Re-send it as a plain string.`,
         );
       }
+      // `thread` is a SHARED field that `propose` also uses, where an empty
+      // value legitimately reads as absent — so it cannot carry .min(1) at the
+      // schema level without narrowing the authoring surface. Guard it only
+      // where it acts as a FILTER, so the MCP surface matches HTTP (which 400s
+      // on an empty value). `branch` is filter-only and has .min(1) already.
+      if (
+        (args.action === "list" || args.action === "search") &&
+        args.thread !== undefined && args.thread.trim() === ""
+      ) {
+        return errorResponse(
+          "malformed_input",
+          "thread filter cannot be empty — omit it to list/search unfiltered",
+        );
+      }
       const svc = todoServiceFor(ctx, indexerProject, bus);
       try {
         switch (args.action) {

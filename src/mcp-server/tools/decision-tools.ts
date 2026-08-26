@@ -362,6 +362,17 @@ export async function searchDecisionsAction(
   resolver?: RepoContextResolver,
 ) {
   const { query, scope, branch, thread } = args;
+  // `branch` carries .min(1) at the schema level; `thread` cannot, because it
+  // is a SHARED field that create/propose also use, where an empty thread
+  // legitimately reads as absent. Guard it per-action instead, so the filter
+  // surface matches HTTP (which 400s on an empty value) without narrowing the
+  // authoring surface.
+  if (thread !== undefined && thread.trim() === "") {
+    return errorResponse(
+      "malformed_input",
+      "thread filter cannot be empty — omit it to search unfiltered",
+    );
+  }
   if (args.cross_repo) {
     if (scope) {
       return errorResponse(

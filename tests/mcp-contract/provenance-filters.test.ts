@@ -29,6 +29,29 @@ describe("MCP provenance filters — decision search", () => {
   beforeAll(async () => { h = await createHarness(); });
   afterAll(async () => { await h.close(); });
 
+  // HTTP 400s on `?thread=`; MCP used to silently filter-to-empty, so the same
+  // mistake read as "nothing on that thread" on one transport and "malformed
+  // input" on the other. `thread` is shared with create/propose (where empty
+  // legitimately means absent), so it is guarded per-action, not at the schema.
+  it("rejects an empty thread filter on decision search", async () => {
+    const res = await callTool(h, "decision", { action: "search", query: "provdec", thread: "" });
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toMatch(/^ERROR reason=malformed_input/);
+  });
+
+  it("rejects an empty thread filter on todo list and search", async () => {
+    for (const action of ["list", "search"]) {
+      const res = await callTool(h, "todo", { action, query: "x", thread: "" });
+      expect(res.isError, action).toBe(true);
+      expect(res.content[0].text).toMatch(/^ERROR reason=malformed_input/);
+    }
+  });
+
+  it("still accepts an empty thread on propose — there it means 'absent'", async () => {
+    const res = await callTool(h, "todo", { action: "propose", summary: "empty thread is fine here", thread: "" });
+    expect(res.isError).toBeFalsy();
+  });
+
   it("branch: matches the tagged row, excludes a differently-tagged row and a NULL-origin row; absent filter returns all", async () => {
     const mine = await callTool(h, "decision", { action: "create", title: "provdec-mine", description: "d", rationale: "r" });
     const other = await callTool(h, "decision", { action: "create", title: "provdec-other", description: "d", rationale: "r" });

@@ -19,6 +19,35 @@ describe("todo provenance is visible on MCP reads", () => {
   beforeAll(async () => { h = await createHarness(); });
   afterAll(async () => { await h.close(); });
 
+  // The decision side had create-time basis coverage from the start; the todo
+  // side was implemented but never asserted, so a refactor of governedTodoRefs
+  // or the propose stamp would have had no automated net.
+  it("stamps basis_hash at propose when the todo governs something", async () => {
+    const repo = makeCommittedRepoFixture();
+    try {
+      const governed = await callTool(h, "todo", {
+        repo_path: repo, action: "propose", summary: "governs at birth", governs: ["committed.ts"],
+      });
+      const governedId = JSON.parse(governed.content[0].text).id as string;
+      const bare = await callTool(h, "todo", {
+        repo_path: repo, action: "propose", summary: "governs nothing",
+      });
+      const bareId = JSON.parse(bare.content[0].text).id as string;
+
+      const db = openDecisionsDb(resolveDecisionsDbPath(repo));
+      try {
+        const basis = (id: string) => (db.prepare("SELECT basis_hash FROM todos WHERE id=?").get(id) as
+          { basis_hash: string | null }).basis_hash;
+        expect(basis(governedId)).toMatch(/^[0-9a-f]{64}$/);
+        // Governing nothing must stay NULL, never a digest of the empty set —
+        // otherwise every ungoverned todo shares one meaningless hash.
+        expect(basis(bareId)).toBeNull();
+      } finally { db.close(); }
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
   it("stamps basis_hash when a GOVERNS link is added to a todo later", async () => {
     const repo = makeCommittedRepoFixture();
     try {
