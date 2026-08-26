@@ -164,6 +164,11 @@ describe("record_reconciliation", () => {
     expect(res.content[0].text).toContain("src/does-not-exist.ts");
   });
 
+  // NOTE these two never reach the guard — it only fires on `match`. They are
+  // evidence that the refusal is SCOPED to match, not evidence the guard
+  // exists (the match test above is that). Both verdicts must stay open: a
+  // decision governing code that never landed is exactly what an agent needs
+  // to be able to record as drifted or partial.
   it("still allows drift while a governed ref is unresolved", async () => {
     const created = await callTool(h, "decision", {
       action: "create", title: "governs a ghost too", description: "d", rationale: "r",
@@ -171,6 +176,16 @@ describe("record_reconciliation", () => {
     });
     const id = JSON.parse(created.content[0].text as string).id as string;
     const res = await callTool(h, "decision", { action: "reconcile", decision_id: id, verdict: "drift" });
+    expect(res.isError).toBeFalsy();
+  });
+
+  it("still allows partial while a governed ref is unresolved", async () => {
+    const created = await callTool(h, "decision", {
+      action: "create", title: "governs a third ghost", description: "d", rationale: "r",
+      governs: ["src/still-missing.ts"],
+    });
+    const id = JSON.parse(created.content[0].text as string).id as string;
+    const res = await callTool(h, "decision", { action: "reconcile", decision_id: id, verdict: "partial" });
     expect(res.isError).toBeFalsy();
   });
 });

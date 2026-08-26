@@ -83,4 +83,22 @@ describe("captureOrigin", () => {
     process.env.CORTEX_THREAD_ID = "";
     expect(captureOrigin(repo(), "").thread).toBeNull();
   });
+
+  // `git -C ""` is treated by git as if no -C were given, so an empty path
+  // would report the CALLING PROCESS's own branch/commit — attributing a row
+  // to a checkout it never came from. Unreachable today (callers always pass
+  // ctx.repoPath), but "confidently wrong" is the failure class this feature
+  // exists to remove, so it is guarded rather than left to chance.
+  it("reports no git identity for an empty path, not the calling process's", () => {
+    delete process.env.CORTEX_THREAD_ID;
+    const o = captureOrigin("");
+    expect(o.branch).toBeNull();
+    expect(o.commit).toBeNull();
+  });
+
+  it("still resolves the thread for an empty path — thread is path-independent", () => {
+    process.env.CORTEX_THREAD_ID = "from-env";
+    expect(captureOrigin("").thread).toBe("from-env");
+    expect(captureOrigin("", "explicit").thread).toBe("explicit");
+  });
 });

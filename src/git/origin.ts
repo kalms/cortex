@@ -23,11 +23,19 @@ export interface OriginFields {
 export function captureOrigin(path: string, thread?: string | null): OriginFields {
   let branch: string | null = null;
   let commit: string | null = null;
-  try {
-    branch = gitBranch(path);   // null on detached HEAD, by design
-    commit = gitHead(path);     // recorded even when detached
-  } catch {
-    /* best-effort: a non-git path, a missing binary, a vanished directory */
+  // An empty path must read as "no git identity", not as the CALLING PROCESS's
+  // identity. `git -C ""` is treated by git as if no -C were given, so it would
+  // silently report this process's own branch/commit and attribute the row to a
+  // checkout it never came from — confidently wrong, which is the exact failure
+  // this feature exists to remove. Only branch/commit are suppressed: `thread`
+  // is independent of the path and still resolves below.
+  if (path !== "") {
+    try {
+      branch = gitBranch(path);   // null on detached HEAD, by design
+      commit = gitHead(path);     // recorded even when detached
+    } catch {
+      /* best-effort: a non-git path, a missing binary, a vanished directory */
+    }
   }
   const supplied = thread ?? process.env.CORTEX_THREAD_ID ?? null;
   return { branch, commit, thread: supplied === "" ? null : supplied };
