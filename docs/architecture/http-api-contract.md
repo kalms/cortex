@@ -120,7 +120,15 @@ postures**, because they are two different kinds of risk.
 
 **Request inputs — fail-closed, always `400`.** The shared `?project=` query
 param and the decision `:id` path param are validated with
-`ProjectParamSchema` / `DecisionIdParamSchema` before any work happens. A bad
+`ProjectParamSchema` / `DecisionIdParamSchema` before any work happens. The
+`?branch=`/`?thread=` query params accepted by `/api/decisions`, `/api/todos`,
+and `/api/stories` follow the same fail-closed precedent, validated once with
+`ProvenanceFilterSchema` before those routes do any work; a bad value returns
+`400` just like a bad `project`. They filter on exact match against a row's
+`origin_branch`/`origin_thread` and **never match a `NULL` origin** — a row
+with no recorded origin (created before provenance stamping, or via a
+non-git path) isn't "on" any branch, so it never appears in a filtered
+result; omitting both params preserves the unfiltered response exactly. A bad
 input is a (potential) abuse vector and the params are tiny, so validation is
 cheap and always on; on failure the handler returns `400 Bad Request` and does
 no further work.

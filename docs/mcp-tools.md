@@ -416,7 +416,13 @@ Fetch a decision with all resolved relationships.
 ### `action: "search"`
 Full-text search over decision titles, descriptions, and rationale.
 - **Params:** `query` (FTS5 syntax), `scope?` (qn/path to filter to
-  governing decisions), `cross_repo?` (boolean).
+  governing decisions), `cross_repo?` (boolean), `branch?`, `thread?`.
+- **`branch`/`thread`:** exact match against the decision's `origin_branch` /
+  `origin_thread` — the checkout/session it was *created* on, not last
+  touched. **Never matches a NULL-origin row** (a decision with no recorded
+  origin isn't "on" any branch), and an absent filter preserves today's
+  behavior exactly. Composable with `scope`. Not applied when `cross_repo:
+  true` (the cross-repo path returns before the filter runs).
 - **`cross_repo: true`:** fans out over every repo the resolver knows
   (pooled + master registry) and returns
   `{ query, repos: [{ repo, path, decisions }], skipped: [{ repo, path, reason }] }`
@@ -427,7 +433,7 @@ Full-text search over decision titles, descriptions, and rationale.
   stays single-repo-only.
 - **Why:** check for duplicates before creating a decision; explore why an area
   was built a certain way; answer "have I decided anything about X in *any*
-  repo?" (`cross_repo`).
+  repo?" (`cross_repo`); scope to one branch or session (`branch`/`thread`).
 
 ### `action: "why"`
 Find decisions governing a code entity. Freshness-aware.
@@ -466,7 +472,8 @@ Promote a decision to a visibility tier.
 
 ### `action: "pending"`
 List active decisions whose governed code drifted since their last verdict (or
-were never judged). Gated behind `CORTEX_RECONCILE=1`.
+were never judged). Reconciliation is always on (the `CORTEX_RECONCILE` flag
+has been removed).
 - **Params:** `limit?` (default 25).
 - **Returns:** each entry carries the decision prose + current governed source,
   ready for a batch judgment pass. Declarative (no-`GOVERNS`) decisions are
@@ -474,13 +481,40 @@ were never judged). Gated behind `CORTEX_RECONCILE=1`.
 - **Why:** find everything that needs re-judging in one call.
 
 ### `action: "reconcile"`
-Record a code-alignment verdict for a decision. Gated behind `CORTEX_RECONCILE=1`.
+Record a code-alignment verdict for a decision. Reconciliation is always on
+(the `CORTEX_RECONCILE` flag has been removed).
 - **Params:** `decision_id`, `verdict` (`match` | `partial` |
   `drift`), `nonconformant?` (`{ref, note}[]`), `note?`.
 - **Behavior:** the server recomputes the governed-source hash itself; returns
   `not_reconcilable` if the decision has no `GOVERNS` links (it's declarative).
+  A `verdict: "match"` is also refused (`not_reconcilable`) if any governed ref
+  is currently missing or unresolvable — the error names the offending refs.
+  Recording `match` over an unresolved ref would freeze the `<missing>`
+  sentinel into the stored hash, so the row would compare equal forever even
+  though it governs code that doesn't exist. `partial` and `drift` remain
+  available regardless of ref state.
 - **Why:** persist the agent's judgment after comparing prose against governed
   source, so the next drift check has a baseline.
+
+### Provenance fields on decisions
+
+Every decision (however created) carries git-identity columns, surfaced
+camelCase on the wire (MCP JSON and the `/api/decisions` HTTP shape alike):
+`originBranch` / `originCommit` / `originThread` (the checkout/session it was
+*created* on — set once, never rewritten) and `lastTouchedBranch` /
+`lastTouchedCommit` / `lastTouchedThread` (the checkout/session that *last
+mutated* it — rewritten by every mutating action, including `supersede`,
+`promote`, `reconcile`, and `link`). Decisions also carry `basisHash` (the
+working-tree hash `hashGovernedSource` computed over the decision's `GOVERNS`
+refs at create/propose time, `null` if it governs nothing) and
+`reconciledBranch` / `reconciledCommit` (the checkout that recorded the
+current reconciliation verdict). All of these are best-effort: on a non-git
+path, a commit-less repo, detached HEAD (branch only), or with no `git` on
+`PATH`, the corresponding field(s) are `null` rather than failing the write.
+Pre-existing rows (created before this stamping existed) read `null` across
+the board and are never backfilled — see
+[decisions-storage.md](architecture/decisions-storage.md#provenance-and-reference-points)
+for why.
 
 ---
 
@@ -540,11 +574,20 @@ Fetch a TODO by ID with resolved links.
 ### `action: "list"`
 List TODOs, optionally filtered by status.
 - **Params:** `status?` (`open` | `in_progress` | `done` | `wont_do`),
-  `limit?` (default 25), `offset?` (default 0).
+  `limit?` (default 25), `offset?` (default 0), `branch?`, `thread?`.
+- **`branch`/`thread`:** exact match against `origin_branch`/`origin_thread`
+  (the checkout/session the TODO was *created* on). **Never matches a
+  NULL-origin row**; an absent filter preserves today's unfiltered behavior.
+  Pushed straight into the repository's SQL `WHERE` clause.
 
 ### `action: "search"`
 Full-text search over TODO titles and descriptions.
-- **Params:** `query` (FTS5 syntax), `scope?` (qn/path to filter to linked TODOs).
+- **Params:** `query` (FTS5 syntax), `scope?` (qn/path to filter to linked
+  TODOs), `branch?`, `thread?`.
+- **`branch`/`thread`:** same semantics as on `list` — exact match on
+  `origin_branch`/`origin_thread`, never matches a NULL-origin row. Applied as
+  a post-filter (search results are looked up in the repository to reach the
+  raw origin columns the FTS-mapped shape drops).
 
 ### `action: "update"`
 Update TODO fields.
@@ -563,6 +606,18 @@ Transition a TODO to a new state.
 - **Params:** `id`, `status` (`open` | `in_progress` | `done` | `wont_do`),
   `note?`.
 - **Why:** explicit state machine transitions keep the audit trail clean.
+
+### Provenance fields on TODOs
+
+Every TODO carries the same git-identity columns as decisions, camelCase on
+the wire: `originBranch`/`originCommit`/`originThread` (set once at
+`propose`, immutable after) and `lastTouchedBranch`/`lastTouchedCommit`/
+`lastTouchedThread` (rewritten by `update`, `link`, and `transition`). TODOs
+also carry `basisHash` (stamped at `propose` from the TODO's `GOVERNS` refs,
+`null` if it governs nothing) but **no** `reconciled*` fields — TODOs are never reconciled; the answer to a
+stale TODO is a state transition, not a verdict. All provenance fields are
+best-effort-nullable and pre-existing rows are never backfilled — see
+[decisions-storage.md](architecture/decisions-storage.md#provenance-and-reference-points).
 
 ---
 

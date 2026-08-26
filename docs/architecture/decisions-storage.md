@@ -138,7 +138,83 @@ decouples the verdict from index freshness — a HEAD-based hash would hide drif
 until the next commit. Judgment is **agent-delegated** (no server-side LLM);
 recording a verdict recomputes the hash server-side so the verdict binds to the
 source the server actually sees. Zero-`GOVERNS` decisions are declarative and
-never reconcilable. The whole flow is gated by `CORTEX_RECONCILE`.
+never reconcilable. Reconciliation is always on — the `CORTEX_RECONCILE` flag
+has been removed. Recording `verdict: "match"` is refused (`not_reconcilable`)
+while any governed ref is currently missing or unresolvable — see
+[Provenance and reference points](#provenance-and-reference-points) below.
+
+## Provenance and reference points
+
+Every authored row — decisions, TODOs, and stories alike — carries git
+identity, stamped by `captureOrigin(path, thread?)` (`src/git/origin.ts`) and
+never touched by the graph indexer. The columns are deliberately asymmetric:
+
+| Column group | decisions | todos | stories | Meaning |
+|---|---|---|---|---|
+| `origin_branch` / `origin_commit` / `origin_thread` | yes | yes | yes | The checkout/session the row was **created** on. Stamped once, immutable after. |
+| `last_touched_branch` / `last_touched_commit` / `last_touched_thread` | yes | yes | yes | The checkout/session that **most recently mutated** the row. Rewritten by every mutating path. |
+| `basis_hash` | yes | yes | **no** | The `hashGovernedSource` digest of the row's governed refs at last stamp. A story governs nothing, so it has no basis to hash. |
+| `reconciled_branch` / `reconciled_commit` | yes | **no** | **no** | The checkout that recorded the current reconciliation verdict. TODOs and stories are never reconciled — a stale TODO gets a state transition, which already exists; a story is a narrative, not a governance claim. |
+
+That's nine columns total: six universal (origin + last-touched), one
+(`basis_hash`) on decisions and todos, two (`reconciled_branch`/
+`reconciled_commit`) on decisions only.
+
+### Origin is immutable; last-touched is rewritten
+
+`origin_*` is written once, at create (`DecisionService.create`/`propose`,
+`TodoService.propose`, `StoryService.create`), and every repository's
+`WRITE_ONCE_KEYS`/update path excludes it from later writes — a later caller
+cannot overwrite it even by passing it explicitly (`tests/decisions/
+repository.test.ts` and the todos equivalent pin this: an update carrying
+`origin_branch: "HACKED-AT-REPO-LEVEL"` is silently dropped). `last_touched_*`
+is rewritten by every mutating path: `update` (ratify a proposal, edit prose),
+`link` (governs/references adds), `supersede` (on the *old* decision, whose
+status changes), `promote`, `reconcile` (`recordReconciliation`), the TODO
+`transition`/`update`/`link` actions, story `close`, and the equivalent CLI
+commands. The one action that does **not** stamp anything is
+`show({action:"advance"})` — it persists no row, so there's nothing to touch.
+
+### `captureOrigin` is best-effort and never fails a write
+
+`captureOrigin` reads the checkout's current branch and HEAD commit via
+`git`, wrapped so **no failure ever throws**: a non-git directory, a
+commit-less repo, a missing `git` binary, or a vanished path all degrade to
+`null` fields rather than blocking the caller's decision/todo/story write.
+Branch and commit degrade independently — a detached HEAD has a commit but
+no branch, by design. `thread` comes from an explicit caller-supplied value,
+falling back to `$CORTEX_THREAD_ID`, and an empty string is treated the same
+as absent (`null`).
+
+### `basis_hash` is always anchored to the checkout root
+
+`hashGovernedSource(repoPath, refs)` is always called with `ctx.repoPath` —
+which, after the 2.0.0 two-axis root split, **is** the checkout axis
+(`worktreeRoot(...)`), never the repo-identity axis (`mainWorktreeRoot`) the
+decisions/todos/stories store itself resolves on. This is deliberate: a
+linked worktree edits its own working tree, and the reconciliation hash must
+see *that* tree, not the main checkout's. If the hash were anchored to the
+canonical root instead, a governed file edited only in a worktree would never
+change the hash the main checkout computes — the verdict would compare equal
+against a tree that never moves, so it would read "match" forever, even as
+the actual governed code drifted arbitrarily far from the decision's prose.
+Anchoring to the checkout the caller is actually standing in is what makes
+the hash a real reference point rather than a rubber stamp. See
+[graph-storage.md#two-axes](graph-storage.md#two-axes) for the full
+two-axis model this depends on.
+
+### Pre-existing rows are never backfilled
+
+Rows created before this stamping existed (or created through a path where
+`captureOrigin` degraded to `null`) read `null` across every provenance
+column, including `basis_hash`, forever — there is no migration or lazy
+backfill that computes one after the fact. A `null` `basis_hash` means
+*unknowable*, not *unchanged*: fabricating one from the row's governed refs
+as they exist today would silently certify that old row as clean relative to
+a basis it never actually had, hiding exactly the drift reconciliation exists
+to catch. Consumers may **count** `null` rows (e.g. "N decisions have no
+recorded basis") but must never **compare** a `null` `basis_hash` against a
+freshly computed one as though it meant anything.
 
 ## `target_kind` taxonomy
 
