@@ -84,8 +84,23 @@ export class TodosRepository {
     return this.db.prepare("DELETE FROM todos WHERE id = ?").run(id).changes > 0;
   }
 
-  list(): TodoRecord[] {
-    return this.db.prepare(`SELECT ${READ_COLS} FROM todos ORDER BY created_at DESC`).all() as TodoRecord[];
+  /** `filter.branch`/`filter.thread` narrow to an exact `origin_branch` /
+   *  `origin_thread` match; omitted entirely, `list()` is unchanged from
+   *  before provenance filtering existed. `origin_branch = @branch` is
+   *  already NULL-safe in SQL — `NULL = 'x'` evaluates to NULL, not true —
+   *  so a row with no recorded origin is excluded whenever a filter is
+   *  present, never "on" any branch/thread. Do not rewrite this as
+   *  `IS NOT DISTINCT FROM`: that would make NULL rows match an absent
+   *  filter value, which is exactly the behavior this comment forbids. */
+  list(filter?: { branch?: string; thread?: string }): TodoRecord[] {
+    return this.db
+      .prepare(
+        `SELECT ${READ_COLS} FROM todos
+         WHERE (@branch IS NULL OR origin_branch = @branch)
+           AND (@thread IS NULL OR origin_thread = @thread)
+         ORDER BY created_at DESC`,
+      )
+      .all({ branch: filter?.branch ?? null, thread: filter?.thread ?? null }) as TodoRecord[];
   }
 
   search(query: string): TodoRecord[] {

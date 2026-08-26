@@ -336,6 +336,15 @@ export const HealthResponseSchema = z.object({ version: Version, ok: z.literal(t
 export const ProjectParamSchema = z.string().min(1).max(200).optional();
 export const DecisionIdParamSchema = z.string().min(1).max(200);
 
+/** `?branch=` / `?thread=` on /api/decisions, /api/todos, /api/stories — exact
+ *  match against origin_branch / origin_thread. Absent is "no filter"; an
+ *  empty string is rejected (mirrors ProjectParamSchema) rather than silently
+ *  matching everything. */
+export const ProvenanceFilterSchema = z.object({
+  branch: z.string().min(1).optional(),
+  thread: z.string().min(1).optional(),
+});
+
 /** Registry of response schemas keyed by the doc filename stem — drives the
  *  generator (Task 7) and the drift guard. */
 export const RESPONSE_SCHEMAS = {

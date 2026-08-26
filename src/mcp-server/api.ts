@@ -43,7 +43,7 @@ import {
   CONTRACT_VERSION, GraphResponseSchema, ProjectsResponseSchema, FramesResponseSchema,
   FileEdgesResponseSchema, AggregatesResponseSchema, DecisionsResponseSchema,
   DecisionDetailResponseSchema, TodosResponseSchema, FreshnessResponseSchema, HealthResponseSchema,
-  ProjectParamSchema, DecisionIdParamSchema, PresencePostSchema, PresenceAckResponseSchema,
+  ProjectParamSchema, DecisionIdParamSchema, ProvenanceFilterSchema, PresencePostSchema, PresenceAckResponseSchema,
   ShowFocusPostSchema, ShowFocusAckResponseSchema,
   StoriesResponseSchema, StoryDetailResponseSchema, StoryIdParamSchema,
   ShowAdvancePostSchema, ShowAdvanceAckResponseSchema,
@@ -419,6 +419,17 @@ export function startViewerServer(
       const projectParam = ProjectParamSchema.safeParse(projectParamRaw);
       if (!projectParam.success) { respondError(res, 400, "invalid project parameter", cors); return; }
       const project = projectParam.data ?? indexerProject ?? undefined;
+
+      // Validate the shared `branch`/`thread` query params once (fail-closed
+      // 400), same posture as `project` above. Used by /api/decisions,
+      // /api/todos, /api/stories to filter on exact origin_branch/origin_thread.
+      const provenanceFilterParsed = ProvenanceFilterSchema.safeParse({
+        branch: parsed.searchParams.get("branch") ?? undefined,
+        thread: parsed.searchParams.get("thread") ?? undefined,
+      });
+      if (!provenanceFilterParsed.success) { respondError(res, 400, "invalid branch/thread parameter", cors); return; }
+      const provenanceFilter = provenanceFilterParsed.data;
+
       const freshCtx = () => {
         const { verdict, etag } = httpFreshnessFor(project ?? null, registry);
         return { req, freshness: verdict, etag, headers: cors };
@@ -553,7 +564,7 @@ export function startViewerServer(
         const resolved = openProjectStore(store, indexerProject, project, { registry });
         const nodes = resolved ? resolved.store.getAllNodesUnified(project ?? undefined) : [];
         try {
-          const records = pd.decisions.list();
+          const records = pd.decisions.list(provenanceFilter);
           const allLinks = records.flatMap((r) => pd.links.findByDecision(r.id));
           const { nodesByPath, framesByPath } = buildPathIndices(nodes);
           const decisions = buildAdaptedDecisions(records, allLinks, nodesByPath, framesByPath);
@@ -572,7 +583,7 @@ export function startViewerServer(
         const resolved = openProjectStore(store, indexerProject, project, { registry });
         const nodes = resolved ? resolved.store.getAllNodesUnified(project ?? undefined) : [];
         try {
-          const records = pt.todos.list();
+          const records = pt.todos.list(provenanceFilter);
           const links = records.flatMap((r) => pt.links.findByTodo(r.id));
           const blocking = records.flatMap((r) => pt.links.findBlocking(r.id));
           const { nodesByPath, framesByPath } = buildPathIndices(nodes);
@@ -613,7 +624,7 @@ export function startViewerServer(
         const ps = openProjectStories(storiesRepo, storyStepsRepo, indexerProject, project, registry);
         try {
           const counts = ps.stories.stepCounts();
-          const stories = ps.stories.list().map((rec) => buildAdaptedStory(rec, counts.get(rec.id) ?? 0));
+          const stories = ps.stories.list(provenanceFilter).map((rec) => buildAdaptedStory(rec, counts.get(rec.id) ?? 0));
           respond(res, StoriesResponseSchema, { version: CONTRACT_VERSION, stories }, freshCtx());
         } finally {
           ps.close();
