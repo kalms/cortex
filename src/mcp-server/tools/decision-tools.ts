@@ -259,6 +259,14 @@ export async function supersedeDecisionAction(
     // decision's status; this refreshes its last_touched_*.
     const origin = captureOrigin(ctx.repoPath);
     const d = serviceForCtx(ctx, bus, indexerProject).supersede({ ...supersedeArgs, origin });
+    // The REPLACEMENT is a decision authored now, so it needs its own basis —
+    // same ordering and anchoring rules as createDecisionAction: supersede()
+    // writes its GOVERNS links synchronously before returning, and
+    // ctx.repoPath is the checkout root the basis must be anchored to.
+    const refs = governedRefs(ctx, d.id);
+    if (refs.length > 0) {
+      ctx.decisionsRepo.update(d.id, { basis_hash: hashGovernedSource(ctx.repoPath, refs) });
+    }
     return ok(JSON.stringify(d, null, 2));
   });
 }

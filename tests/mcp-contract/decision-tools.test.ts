@@ -731,6 +731,55 @@ describe("decision-tools contract", () => {
     });
   });
 
+  describe("supersede stamps the replacement decision", () => {
+    // The replacement is a decision AUTHORED NOW. Before this was fixed it was
+    // created via service.create() with no origin threaded and no basis
+    // computed, so a decision written today through supersede had
+    // origin_*/last_touched_*/basis_hash all NULL — permanently unknowable and
+    // never drift-detectable, despite accepting `governs`.
+    it("gives the replacement its own origin, last-touched and basis_hash", async () => {
+      // A committed fixture, deliberately: on a repo with no commits a real
+      // value and NULL are indistinguishable, so the assertions below would
+      // pass against a deleted implementation.
+      const repo = makeCommittedRepoFixture();
+      try {
+        const created = await callTool(h, "decision", {
+          repo_path: repo, action: "create", title: "original awaiting supersede",
+          description: "d", rationale: "r", governs: ["src/index.ts"],
+        });
+        const oldId = JSON.parse(created.content[0].text as string).id as string;
+        const realBranch = execSync(`git -C "${repo}" branch --show-current`).toString().trim();
+        const realCommit = execSync(`git -C "${repo}" rev-parse HEAD`).toString().trim();
+
+        const res = await callTool(h, "decision", {
+          repo_path: repo, action: "supersede", old_decision_id: oldId,
+          title: "the replacement", problem: "p", resolution: "r", rationale: "r",
+          governs: ["src/index.ts"],
+        });
+        const newId = JSON.parse(res.content[0].text as string).id as string;
+        expect(newId).not.toBe(oldId);
+
+        const db = openDecisionsDb(resolveDecisionsDbPath(repo));
+        try {
+          const row = db.prepare(
+            "SELECT origin_branch, origin_commit, last_touched_branch, basis_hash FROM decisions WHERE id=?",
+          ).get(newId) as {
+            origin_branch: string | null; origin_commit: string | null;
+            last_touched_branch: string | null; basis_hash: string | null;
+          };
+          expect(row.basis_hash).toMatch(/^[0-9a-f]{64}$/);
+          expect(row.origin_branch).toBe(realBranch);
+          expect(row.origin_commit).toBe(realCommit);
+          expect(row.last_touched_branch).toBe(realBranch);
+        } finally {
+          db.close();
+        }
+      } finally {
+        rmSync(repo, { recursive: true, force: true });
+      }
+    });
+  });
+
   describe("last-touched provenance", () => {
     it("keeps origin immutable across an update", async () => {
       const created = await callTool(h, "decision", {

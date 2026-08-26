@@ -133,13 +133,13 @@ export interface SupersedeDecisionInput {
   governs?: string[];
   references?: string[];
   author?: string;
-  // Git identity captured by the tool handler. supersede() mutates the OLD
-  // decision's status in place (superseded/superseded_by) — that mutation's
-  // last_touched_* is refreshed from this. Deliberately NOT threaded into the
-  // replacement decision's own create() call: origin-at-create for a
-  // supersede-created decision was declared out of scope by Task 3 (only
-  // create()/propose() capture origin at mint time); last-touched refresh on
-  // the row this call actually mutates is Task 5's obligation, not that gap.
+  // Git identity captured by the tool handler, used for BOTH rows this call
+  // touches: the replacement decision it mints (origin-at-create, exactly as
+  // any other create) and the old decision whose status it flips
+  // (last_touched_* refresh). An earlier revision threaded it only into the
+  // latter, which left every supersede-created decision with NULL provenance —
+  // a row authored today that is permanently unknowable and never
+  // drift-detectable. The handler also stamps the replacement's basis_hash.
   origin?: OriginFields;
 }
 

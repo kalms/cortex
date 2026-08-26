@@ -286,14 +286,17 @@ export class DecisionService {
       author: input.author,
       problem: input.problem,
       resolution: input.resolution,
+      // The replacement is a decision AUTHORED NOW, so it gets its own origin
+      // exactly as any other create does. Omitting it left every
+      // supersede-created decision with NULL provenance — unknowable forever,
+      // and never drift-detectable — despite accepting `governs`.
+      origin: input.origin,
     });
     this.update(oldCanonicalId, {
       status: "superseded",
       superseded_by: replacement.id,
       author: input.author,
-      // Refreshes last_touched_* on the OLD decision this call actually
-      // mutates. Deliberately not threaded into the `create()` call above —
-      // see the origin field's comment on SupersedeDecisionInput.
+      // Refreshes last_touched_* on the OLD decision this call also mutates.
       origin: input.origin,
     }, { emit: false });
     this.links.add({
