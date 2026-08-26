@@ -421,8 +421,9 @@ Full-text search over decision titles, descriptions, and rationale.
   `origin_thread` — the checkout/session it was *created* on, not last
   touched. **Never matches a NULL-origin row** (a decision with no recorded
   origin isn't "on" any branch), and an absent filter preserves today's
-  behavior exactly. Composable with `scope`. Not applied when `cross_repo:
-  true` (the cross-repo path returns before the filter runs).
+  behavior exactly. Composable with `scope`. **Cannot** be combined with
+  `cross_repo: true` (`malformed_input`) — an origin branch or thread names a
+  checkout of a single repo, so it has no meaning across repos.
 - **`cross_repo: true`:** fans out over every repo the resolver knows
   (pooled + master registry) and returns
   `{ query, repos: [{ repo, path, decisions }], skipped: [{ repo, path, reason }] }`

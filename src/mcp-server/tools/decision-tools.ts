@@ -364,6 +364,16 @@ export async function searchDecisionsAction(
         "scope cannot be combined with cross_repo — scope is a single-repo governs filter",
       );
     }
+    // Fail closed rather than fan out unfiltered. An origin branch or thread
+    // names a checkout/session of ONE repo, so it cannot mean anything across
+    // repos. Silently ignoring them returned a full, plausible result set that
+    // no caller could distinguish from a successful filtered query.
+    if (branch || thread) {
+      return errorResponse(
+        "malformed_input",
+        "branch/thread cannot be combined with cross_repo — an origin branch or thread names a checkout of a single repo. Drop cross_repo to filter within one repo, or drop branch/thread to fan out.",
+      );
+    }
     return execAction(null, () =>
       crossRepoSearch(ctx, query, bus, indexerProject, resolver));
   }
