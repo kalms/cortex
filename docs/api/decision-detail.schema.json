@@ -190,6 +190,60 @@
                   "type": "null"
                 }
               ]
+            },
+            "originBranch": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "originCommit": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "originThread": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "lastTouchedBranch": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "lastTouchedCommit": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "lastTouchedThread": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "basisHash": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "reconciledBranch": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "reconciledCommit": {
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
           "required": [

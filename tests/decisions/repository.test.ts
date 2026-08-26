@@ -41,6 +41,17 @@ describe("DecisionsRepository", () => {
       reconciled_by: null,
       nonconformant_nodes: null,
       reconciliation_note: null,
+      // Git-identity columns (Task 9: now projected by every read) — null
+      // unless a test explicitly stamps them via overrides.
+      origin_branch: null,
+      origin_commit: null,
+      origin_thread: null,
+      last_touched_branch: null,
+      last_touched_commit: null,
+      last_touched_thread: null,
+      basis_hash: null,
+      reconciled_branch: null,
+      reconciled_commit: null,
       ...overrides,
     };
   }

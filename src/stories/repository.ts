@@ -5,6 +5,17 @@ import type { OriginFields } from "../git/origin.js";
 const STORY_COLS = "id, seq, title, description, status, created_by, created_at, updated_at";
 const STEP_COLS = "story_id, step_index, caption, refs, emphasis_edges, layout_hint";
 
+/** Git-identity columns — projected by every read, never by the INSERT column
+ *  list (which spells them out separately). Mirrors `PROVENANCE_COLS` in
+ *  ../decisions/repository.ts and ../todos/repository.ts. Stories carry
+ *  origin + last-touched only: no `basis_hash` (a story governs nothing) and
+ *  no `reconciled_*` (stories are never reconciled). */
+const PROVENANCE_COLS =
+  "origin_branch, origin_commit, origin_thread, " +
+  "last_touched_branch, last_touched_commit, last_touched_thread";
+
+const READ_COLS = `${STORY_COLS}, ${PROVENANCE_COLS}`;
+
 export class StoriesRepository {
   constructor(private db: Database.Database) {}
 
@@ -31,15 +42,15 @@ export class StoriesRepository {
   }
 
   get(id: string): StoryRecord | null {
-    return (this.db.prepare(`SELECT ${STORY_COLS} FROM stories WHERE id = ?`).get(id) as StoryRecord | undefined) ?? null;
+    return (this.db.prepare(`SELECT ${READ_COLS} FROM stories WHERE id = ?`).get(id) as StoryRecord | undefined) ?? null;
   }
 
   getBySeq(seq: number): StoryRecord | null {
-    return (this.db.prepare(`SELECT ${STORY_COLS} FROM stories WHERE seq = ?`).get(seq) as StoryRecord | undefined) ?? null;
+    return (this.db.prepare(`SELECT ${READ_COLS} FROM stories WHERE seq = ?`).get(seq) as StoryRecord | undefined) ?? null;
   }
 
   list(): StoryRecord[] {
-    return this.db.prepare(`SELECT ${STORY_COLS} FROM stories ORDER BY created_at DESC, seq DESC`).all() as StoryRecord[];
+    return this.db.prepare(`SELECT ${READ_COLS} FROM stories ORDER BY created_at DESC, seq DESC`).all() as StoryRecord[];
   }
 
   /** Closing a story is a mutation like any other — last_touched_* rewrites

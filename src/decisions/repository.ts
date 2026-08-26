@@ -72,7 +72,17 @@ const SELECT_COLS =
 
 const RECON_COLS =
   "reconciliation_verdict, reconciled_at, reconciled_source_hash, reconciled_by, nonconformant_nodes, reconciliation_note";
-const READ_COLS = `${SELECT_COLS}, ${RECON_COLS}`;
+
+/** Git-identity columns. Projected by every read (`READ_COLS`) — without them
+ *  `get`/`list`/`search` hand back records whose provenance is `undefined`,
+ *  which every downstream `?? null` silently turns into "no git identity",
+ *  indistinguishable from a genuinely unstamped row. */
+const PROVENANCE_COLS =
+  "origin_branch, origin_commit, origin_thread, " +
+  "last_touched_branch, last_touched_commit, last_touched_thread, " +
+  "basis_hash, reconciled_branch, reconciled_commit";
+
+const READ_COLS = `${SELECT_COLS}, ${RECON_COLS}, ${PROVENANCE_COLS}`;
 
 /**
  * Turn a free-text user query into a safe FTS5 MATCH expression.

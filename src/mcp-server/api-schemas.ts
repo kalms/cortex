@@ -153,6 +153,24 @@ export const GovernsRefSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("symbol"), path: z.string(), name: z.string() }),
 ]);
 export const AdaptedAlternativeSchema = z.object({ title: z.string(), reason: z.string() });
+
+// ── Authored-content provenance (git identity) ───────────────────────────────
+/** Git identity of an authored row — the checkout it was created on
+ *  (`origin*`) and the checkout that last mutated it (`lastTouched*`).
+ *  Optional so CONTRACT_VERSION stays 1 — these are new fields, not a retype
+ *  of an existing one (same precedent as `ProjectFieldsSchema.branch`). Every
+ *  one is independently nullable: a row created before provenance existed
+ *  reads null everywhere, a detached HEAD has a commit but no branch, and a
+ *  null basisHash means "unknowable", never "unchanged". Spread into the
+ *  adapted schemas rather than nested so the wire stays flat. */
+const ProvenanceFieldsSchema = {
+  originBranch: z.string().nullable().optional(),
+  originCommit: z.string().nullable().optional(),
+  originThread: z.string().nullable().optional(),
+  lastTouchedBranch: z.string().nullable().optional(),
+  lastTouchedCommit: z.string().nullable().optional(),
+  lastTouchedThread: z.string().nullable().optional(),
+};
 /** Mirrors AdaptedDecision (src/mcp-server/api-decisions.ts). `provenance` is
  *  DELIBERATELY widened from ProvenanceMeta to a permissive record — forward-
  *  compatible, and safe because buildAdaptedDecision assigns JSON.parse(...) and
@@ -174,6 +192,14 @@ export const AdaptedDecisionSchema = z.object({
   relatedTo: z.array(z.string()),
   dependsOn: z.array(z.string()),
   provenance: z.record(z.unknown()).nullable(),
+  ...ProvenanceFieldsSchema,
+  /** Digest of the governed source at create time. Decisions and todos only —
+   *  a story governs nothing, so it has no basis to hash. */
+  basisHash: z.string().nullable().optional(),
+  /** The checkout a reconciliation verdict was recorded from. Decisions only —
+   *  todos and stories are never reconciled. */
+  reconciledBranch: z.string().nullable().optional(),
+  reconciledCommit: z.string().nullable().optional(),
 });
 export type AdaptedDecision = z.infer<typeof AdaptedDecisionSchema>;
 export type GovernsRef = z.infer<typeof GovernsRefSchema>;
@@ -207,6 +233,8 @@ export const AdaptedTodoSchema = z.object({
   relatedTo: z.array(TodoRefSchema),
   spawnsFrom: z.string().nullable(),
   resolvedBy: z.array(z.string()),
+  ...ProvenanceFieldsSchema,
+  basisHash: z.string().nullable().optional(),
 });
 export type AdaptedTodo = z.infer<typeof AdaptedTodoSchema>;
 export const TodosResponseSchema = z.object({
@@ -266,6 +294,9 @@ export const AdaptedStorySchema = z.object({
   createdAt: z.string(),
   updatedAt: z.string(),
   stepCount: z.number(),
+  // Stories carry origin + last-touched only: no basisHash (they govern
+  // nothing) and no reconciled* (they are never reconciled).
+  ...ProvenanceFieldsSchema,
 });
 export const AdaptedStoryDetailSchema = AdaptedStorySchema.extend({
   steps: z.array(StoryStepWireSchema),
