@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import type { Decision, CreateDecisionInput, UpdateDecisionInput, ProposeDecisionInput, SupersedeDecisionInput, DecisionWithRefs, DecisionRefRow } from "./types.js";
 import type { EventBus } from "../events/bus.js";
+import type { OriginFields } from "../git/origin.js";
 import type { Event } from "../events/types.js";
 import { newUlid } from "../events/ulid.js";
 import { DecisionsRepository, DecisionRecord } from "./repository.js";
@@ -36,6 +37,7 @@ export class DecisionService {
   create(input: CreateDecisionInput): Decision {
     const now = new Date().toISOString();
     const { id, seq } = mintId(this.db, "decision", (cand) => this.decisions.get(cand) != null);
+    const origin = input.origin ?? null;
     const rec: DecisionRecord = {
       id,
       seq,
@@ -52,17 +54,26 @@ export class DecisionService {
       provenance: input.provenance ? JSON.stringify(input.provenance) : null,
       created_at: now,
       updated_at: now,
+      // Origin is stamped once, here, and never rewritten. Last-touched
+      // starts equal to origin — a freshly created row hasn't been touched
+      // since. Later tasks rewrite last-touched on mutation.
+      origin_branch: origin?.branch ?? null,
+      origin_commit: origin?.commit ?? null,
+      origin_thread: origin?.thread ?? null,
+      last_touched_branch: origin?.branch ?? null,
+      last_touched_commit: origin?.commit ?? null,
+      last_touched_thread: origin?.thread ?? null,
     };
     this.decisions.insert(rec);
 
     if (input.governs) {
       for (const target of input.governs) {
-        this.addLink(id, classifyGovernsTarget(target), target, "GOVERNS", now);
+        this.addLink(id, classifyGovernsTarget(target), target, "GOVERNS", now, origin);
       }
     }
     if (input.references) {
       for (const ref of input.references) {
-        this.addLink(id, classifyGovernsTarget(ref), ref, "REFERENCES", now);
+        this.addLink(id, classifyGovernsTarget(ref), ref, "REFERENCES", now, origin);
       }
     }
 
@@ -173,16 +184,27 @@ export class DecisionService {
     if (input.problem !== undefined) { patch.problem = input.problem; changedFields.push("problem"); }
     if (input.resolution !== undefined) { patch.resolution = input.resolution; changedFields.push("resolution"); }
     if (input.author !== undefined) patch.author = input.author;
+    // Rewrite last-touched to the checkout this update came from —
+    // unconditionally. Every real caller (tool handlers, the CLI, ratify(),
+    // supersede()) now threads origin through; omitting it stamps null, the
+    // same honest "no git identity" value a non-git checkout produces. A
+    // conditional guard here previously left last_touched_* stale on
+    // origin-less callers while addLink (below, via replaceLinks) NULLed it
+    // anyway two lines later — two contradictory policies for one call.
+    // Origin itself is never touched — DecisionUpdate excludes it entirely.
+    patch.last_touched_branch = input.origin?.branch ?? null;
+    patch.last_touched_commit = input.origin?.commit ?? null;
+    patch.last_touched_thread = input.origin?.thread ?? null;
     // Record patch + governance replacement (full set semantics) land
     // atomically — a failed link write must not leave the record updated.
     // The replaceLinks transactions nest as savepoints.
     this.db.transaction(() => {
       this.decisions.update(canonicalId, patch);
       if (input.governs !== undefined) {
-        this.replaceLinks(canonicalId, "GOVERNS", input.governs, now);
+        this.replaceLinks(canonicalId, "GOVERNS", input.governs, now, input.origin);
       }
       if (input.references !== undefined) {
-        this.replaceLinks(canonicalId, "REFERENCES", input.references, now);
+        this.replaceLinks(canonicalId, "REFERENCES", input.references, now, input.origin);
       }
     })();
 
@@ -238,12 +260,12 @@ export class DecisionService {
     return this.decisions.list().map(toDecision);
   }
 
-  linkGoverns(decisionId: string, target: string): void {
-    this.addLink(decisionId, classifyGovernsTarget(target), target, "GOVERNS", new Date().toISOString());
+  linkGoverns(decisionId: string, target: string, origin?: OriginFields | null): void {
+    this.addLink(decisionId, classifyGovernsTarget(target), target, "GOVERNS", new Date().toISOString(), origin);
   }
 
-  linkReference(decisionId: string, target: string): void {
-    this.addLink(decisionId, classifyGovernsTarget(target), target, "REFERENCES", new Date().toISOString());
+  linkReference(decisionId: string, target: string, origin?: OriginFields | null): void {
+    this.addLink(decisionId, classifyGovernsTarget(target), target, "REFERENCES", new Date().toISOString(), origin);
   }
 
   supersede(input: SupersedeDecisionInput): Decision {
@@ -264,11 +286,18 @@ export class DecisionService {
       author: input.author,
       problem: input.problem,
       resolution: input.resolution,
+      // The replacement is a decision AUTHORED NOW, so it gets its own origin
+      // exactly as any other create does. Omitting it left every
+      // supersede-created decision with NULL provenance — unknowable forever,
+      // and never drift-detectable — despite accepting `governs`.
+      origin: input.origin,
     });
     this.update(oldCanonicalId, {
       status: "superseded",
       superseded_by: replacement.id,
       author: input.author,
+      // Refreshes last_touched_* on the OLD decision this call also mutates.
+      origin: input.origin,
     }, { emit: false });
     this.links.add({
       decision_id: replacement.id,
@@ -291,6 +320,7 @@ export class DecisionService {
   propose(input: ProposeDecisionInput): Decision {
     const now = new Date().toISOString();
     const { id, seq } = mintId(this.db, "decision", (cand) => this.decisions.get(cand) != null);
+    const origin = input.origin ?? null;
     const rec: DecisionRecord = {
       id,
       seq,
@@ -307,10 +337,18 @@ export class DecisionService {
       provenance: input.provenance ? JSON.stringify(input.provenance) : null,
       created_at: now,
       updated_at: now,
+      // Origin is stamped once, here, and never rewritten. Last-touched
+      // starts equal to origin.
+      origin_branch: origin?.branch ?? null,
+      origin_commit: origin?.commit ?? null,
+      origin_thread: origin?.thread ?? null,
+      last_touched_branch: origin?.branch ?? null,
+      last_touched_commit: origin?.commit ?? null,
+      last_touched_thread: origin?.thread ?? null,
     };
     this.decisions.insert(rec);
-    for (const target of input.governs ?? []) this.linkGoverns(id, target);
-    for (const ref of input.references ?? []) this.linkReference(id, ref);
+    for (const target of input.governs ?? []) this.linkGoverns(id, target, origin);
+    for (const ref of input.references ?? []) this.linkReference(id, ref, origin);
     if (input.pr_number != null) {
       this.links.add({
         decision_id: id,
@@ -336,10 +374,10 @@ export class DecisionService {
    * when a PR that introduced the decision is merged. Idempotent: no-op if
    * the decision doesn't exist or isn't currently 'proposed'.
    */
-  ratify(decisionId: string, viaPrNumber: number): void {
+  ratify(decisionId: string, viaPrNumber: number, origin?: OriginFields | null): void {
     const existing = this.decisions.get(decisionId);
     if (!existing || existing.status !== "proposed") return;
-    this.update(decisionId, { status: "active" }, { emit: false });
+    this.update(decisionId, { status: "active", origin: origin ?? undefined }, { emit: false });
     this.emit({
       id: newUlid(),
       kind: "decision.ratified",
@@ -350,16 +388,17 @@ export class DecisionService {
     });
   }
 
-  linkRelatedTo(fromId: string, toId: string): void {
-    this.addLink(fromId, "decision", toId, "DECISION_RELATED_TO", new Date().toISOString());
+  linkRelatedTo(fromId: string, toId: string, origin?: OriginFields | null): void {
+    this.addLink(fromId, "decision", toId, "DECISION_RELATED_TO", new Date().toISOString(), origin);
   }
 
-  linkDependsOn(fromId: string, toId: string): void {
-    this.addLink(fromId, "decision", toId, "DECISION_DEPENDS_ON", new Date().toISOString());
+  linkDependsOn(fromId: string, toId: string, origin?: OriginFields | null): void {
+    this.addLink(fromId, "decision", toId, "DECISION_DEPENDS_ON", new Date().toISOString(), origin);
   }
 
   private addLink(
     decisionId: string, kind: TargetKind, ref: string, relation: Relation, createdAt: string,
+    origin?: OriginFields | null,
   ): void {
     // Resolve seq-form or bare-seq owning ref to the canonical FK value so
     // `decision_links.decision_id` always stores the canonical PK (FK safe).
@@ -378,6 +417,16 @@ export class DecisionService {
       decision_id: ownerId, target_kind: kind, target_ref: targetRef,
       relation, created_at: createdAt,
     });
+
+    // A link IS a modification of the owning decision — bump updated_at +
+    // last_touched_* in the same beat, closing the pre-existing bug where
+    // adding a link never touched the decision row at all.
+    this.decisions.update(ownerId, {
+      updated_at: createdAt,
+      last_touched_branch: origin?.branch ?? null,
+      last_touched_commit: origin?.commit ?? null,
+      last_touched_thread: origin?.thread ?? null,
+    });
   }
 
   // Delete + insert must commit or roll back together: governance links are
@@ -388,6 +437,7 @@ export class DecisionService {
     relation: "GOVERNS" | "REFERENCES",
     newTargets: string[],
     now: string,
+    origin?: OriginFields | null,
   ): void {
     this.db.transaction(() => {
       const current = this.links.findByDecision(decisionId).filter((l) => l.relation === relation);
@@ -401,7 +451,7 @@ export class DecisionService {
         this.links.remove(decisionId, link.target_kind, link.target_ref, link.relation);
       }
       for (const target of toAdd) {
-        this.addLink(decisionId, classifyGovernsTarget(target), target, relation, now);
+        this.addLink(decisionId, classifyGovernsTarget(target), target, relation, now, origin);
       }
     })();
   }

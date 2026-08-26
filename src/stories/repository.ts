@@ -1,36 +1,90 @@
 import type Database from "better-sqlite3";
 import type { StoryRecord, StoryStepRecord } from "./types.js";
+import type { OriginFields } from "../git/origin.js";
 
 const STORY_COLS = "id, seq, title, description, status, created_by, created_at, updated_at";
 const STEP_COLS = "story_id, step_index, caption, refs, emphasis_edges, layout_hint";
+
+/** Git-identity columns — projected by every read, never by the INSERT column
+ *  list (which spells them out separately). Mirrors `PROVENANCE_COLS` in
+ *  ../decisions/repository.ts and ../todos/repository.ts. Stories carry
+ *  origin + last-touched only: no `basis_hash` (a story governs nothing) and
+ *  no `reconciled_*` (stories are never reconciled). */
+const PROVENANCE_COLS =
+  "origin_branch, origin_commit, origin_thread, " +
+  "last_touched_branch, last_touched_commit, last_touched_thread";
+
+const READ_COLS = `${STORY_COLS}, ${PROVENANCE_COLS}`;
 
 export class StoriesRepository {
   constructor(private db: Database.Database) {}
 
   insert(rec: StoryRecord): void {
     this.db.prepare(
-      `INSERT INTO stories (${STORY_COLS}) VALUES
-       (@id, @seq, @title, @description, @status, @created_by, @created_at, @updated_at)`,
-    ).run(rec);
+      `INSERT INTO stories (
+         ${STORY_COLS},
+         origin_branch, origin_commit, origin_thread,
+         last_touched_branch, last_touched_commit, last_touched_thread
+       ) VALUES (
+         @id, @seq, @title, @description, @status, @created_by, @created_at, @updated_at,
+         @origin_branch, @origin_commit, @origin_thread,
+         @last_touched_branch, @last_touched_commit, @last_touched_thread
+       )`,
+    ).run({
+      ...rec,
+      origin_branch: rec.origin_branch ?? null,
+      origin_commit: rec.origin_commit ?? null,
+      origin_thread: rec.origin_thread ?? null,
+      last_touched_branch: rec.last_touched_branch ?? null,
+      last_touched_commit: rec.last_touched_commit ?? null,
+      last_touched_thread: rec.last_touched_thread ?? null,
+    });
   }
 
   get(id: string): StoryRecord | null {
-    return (this.db.prepare(`SELECT ${STORY_COLS} FROM stories WHERE id = ?`).get(id) as StoryRecord | undefined) ?? null;
+    return (this.db.prepare(`SELECT ${READ_COLS} FROM stories WHERE id = ?`).get(id) as StoryRecord | undefined) ?? null;
   }
 
   getBySeq(seq: number): StoryRecord | null {
-    return (this.db.prepare(`SELECT ${STORY_COLS} FROM stories WHERE seq = ?`).get(seq) as StoryRecord | undefined) ?? null;
+    return (this.db.prepare(`SELECT ${READ_COLS} FROM stories WHERE seq = ?`).get(seq) as StoryRecord | undefined) ?? null;
   }
 
-  list(): StoryRecord[] {
-    return this.db.prepare(`SELECT ${STORY_COLS} FROM stories ORDER BY created_at DESC, seq DESC`).all() as StoryRecord[];
+  /** `filter.branch`/`filter.thread` narrow to an exact `origin_branch` /
+   *  `origin_thread` match; omitted entirely, `list()` is unchanged from
+   *  before provenance filtering existed. `origin_branch = @branch` is
+   *  already NULL-safe in SQL — `NULL = 'x'` evaluates to NULL, not true —
+   *  so a row with no recorded origin is excluded whenever a filter is
+   *  present, never "on" any branch/thread. Do not rewrite this as
+   *  `IS NOT DISTINCT FROM`: that would make NULL rows match an absent
+   *  filter value, which is exactly the behavior this comment forbids. */
+  list(filter?: { branch?: string; thread?: string }): StoryRecord[] {
+    return this.db
+      .prepare(
+        `SELECT ${READ_COLS} FROM stories
+         WHERE (@branch IS NULL OR origin_branch = @branch)
+           AND (@thread IS NULL OR origin_thread = @thread)
+         ORDER BY created_at DESC, seq DESC`,
+      )
+      .all({ branch: filter?.branch ?? null, thread: filter?.thread ?? null }) as StoryRecord[];
   }
 
-  setStatus(id: string, status: string, updatedAt: string): void {
-    this.db.prepare("UPDATE stories SET status = @status, updated_at = @updated_at WHERE id = @id").run({
+  /** Closing a story is a mutation like any other — last_touched_* rewrites
+   *  from the checkout `origin` was captured on; origin_* is never touched. */
+  setStatus(id: string, status: string, updatedAt: string, origin?: OriginFields | null): void {
+    this.db.prepare(
+      `UPDATE stories SET
+         status = @status, updated_at = @updated_at,
+         last_touched_branch = @last_touched_branch,
+         last_touched_commit = @last_touched_commit,
+         last_touched_thread = @last_touched_thread
+       WHERE id = @id`,
+    ).run({
       id,
       status,
       updated_at: updatedAt,
+      last_touched_branch: origin?.branch ?? null,
+      last_touched_commit: origin?.commit ?? null,
+      last_touched_thread: origin?.thread ?? null,
     });
   }
 

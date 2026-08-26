@@ -1,7 +1,24 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createHarness, callTool, makeIndexedRepoFixture, countDecisions, type HarnessContext } from "./harness.js";
 import { ResponseSchema } from "../../src/mcp-server/response.js";
-import { rmSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
+import { execSync } from "node:child_process";
+import { join } from "node:path";
+import { openDecisionsDb } from "../../src/decisions/db.js";
+import { resolveDecisionsDbPath } from "../../src/db/resolve-path.js";
+
+/** A fixture repo with a real commit, so captureOrigin's gitBranch/gitHead
+ *  produce real values instead of the null degrade a commit-less `git init`
+ *  repo gives — needed to assert actual last_touched_* values, not just
+ *  column presence. Mirrors repoWithGovernedFile() in
+ *  tests/mcp-server/reconciliation-ref-parity.test.ts. */
+function makeCommittedRepoFixture(): string {
+  const root = makeIndexedRepoFixture();
+  writeFileSync(join(root, "committed.ts"), "export const x = 1;\n");
+  execSync(`git -C "${root}" add .`, { stdio: "ignore" });
+  execSync(`git -C "${root}" commit -q --no-gpg-sign -m seed`, { stdio: "ignore" });
+  return root;
+}
 
 describe("decision-tools contract", () => {
   let h: HarnessContext;
@@ -679,6 +696,234 @@ describe("decision-tools contract", () => {
         expect(resPrimary.content[0].text).not.toContain("uniqueDecisionInB");
       } finally {
         try { rmSync(repoB, { recursive: true }); } catch { /* ignore */ }
+      }
+    });
+  });
+
+  describe("basis_hash stamping at create", () => {
+    it("stamps basis_hash when the decision governs something", async () => {
+      const res = await callTool(h, "decision", {
+        action: "create", title: "governed", description: "d", rationale: "r",
+        governs: ["src/index.ts"],
+      });
+      const id = JSON.parse(res.content[0].text as string).id as string;
+      const db = openDecisionsDb(resolveDecisionsDbPath(h.repoPath));
+      try {
+        const row = db.prepare("SELECT basis_hash FROM decisions WHERE id=?").get(id) as { basis_hash: string | null };
+        expect(row.basis_hash).toMatch(/^[0-9a-f]{64}$/);
+      } finally {
+        db.close();
+      }
+    });
+
+    it("leaves basis_hash NULL when the decision governs nothing", async () => {
+      const res = await callTool(h, "decision", {
+        action: "create", title: "ungoverned", description: "d", rationale: "r",
+      });
+      const id = JSON.parse(res.content[0].text as string).id as string;
+      const db = openDecisionsDb(resolveDecisionsDbPath(h.repoPath));
+      try {
+        const row = db.prepare("SELECT basis_hash FROM decisions WHERE id=?").get(id) as { basis_hash: string | null };
+        expect(row.basis_hash).toBeNull();
+      } finally {
+        db.close();
+      }
+    });
+  });
+
+  describe("supersede stamps the replacement decision", () => {
+    // The replacement is a decision AUTHORED NOW. Before this was fixed it was
+    // created via service.create() with no origin threaded and no basis
+    // computed, so a decision written today through supersede had
+    // origin_*/last_touched_*/basis_hash all NULL — permanently unknowable and
+    // never drift-detectable, despite accepting `governs`.
+    it("gives the replacement its own origin, last-touched and basis_hash", async () => {
+      // A committed fixture, deliberately: on a repo with no commits a real
+      // value and NULL are indistinguishable, so the assertions below would
+      // pass against a deleted implementation.
+      const repo = makeCommittedRepoFixture();
+      try {
+        const created = await callTool(h, "decision", {
+          repo_path: repo, action: "create", title: "original awaiting supersede",
+          description: "d", rationale: "r", governs: ["src/index.ts"],
+        });
+        const oldId = JSON.parse(created.content[0].text as string).id as string;
+        const realBranch = execSync(`git -C "${repo}" branch --show-current`).toString().trim();
+        const realCommit = execSync(`git -C "${repo}" rev-parse HEAD`).toString().trim();
+
+        const res = await callTool(h, "decision", {
+          repo_path: repo, action: "supersede", old_decision_id: oldId,
+          title: "the replacement", problem: "p", resolution: "r", rationale: "r",
+          governs: ["src/index.ts"],
+        });
+        const newId = JSON.parse(res.content[0].text as string).id as string;
+        expect(newId).not.toBe(oldId);
+
+        const db = openDecisionsDb(resolveDecisionsDbPath(repo));
+        try {
+          const row = db.prepare(
+            "SELECT origin_branch, origin_commit, last_touched_branch, basis_hash FROM decisions WHERE id=?",
+          ).get(newId) as {
+            origin_branch: string | null; origin_commit: string | null;
+            last_touched_branch: string | null; basis_hash: string | null;
+          };
+          expect(row.basis_hash).toMatch(/^[0-9a-f]{64}$/);
+          expect(row.origin_branch).toBe(realBranch);
+          expect(row.origin_commit).toBe(realCommit);
+          expect(row.last_touched_branch).toBe(realBranch);
+        } finally {
+          db.close();
+        }
+      } finally {
+        rmSync(repo, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe("basis_hash tracks the GOVERNS set", () => {
+    const basisOf = (repo: string, id: string): string | null => {
+      const db = openDecisionsDb(resolveDecisionsDbPath(repo));
+      try {
+        return (db.prepare("SELECT basis_hash FROM decisions WHERE id=?").get(id) as
+          { basis_hash: string | null }).basis_hash;
+      } finally { db.close(); }
+    };
+
+    // A decision that GAINS governance via link kept basis_hash NULL forever:
+    // it was only ever stamped at create, when it governed nothing.
+    it("stamps basis_hash when a GOVERNS link is added later", async () => {
+      const repo = makeCommittedRepoFixture();
+      try {
+        const created = await callTool(h, "decision", {
+          repo_path: repo, action: "create", title: "ungoverned at birth",
+          description: "d", rationale: "r",
+        });
+        const id = JSON.parse(created.content[0].text as string).id as string;
+        expect(basisOf(repo, id)).toBeNull();
+
+        await callTool(h, "decision", {
+          repo_path: repo, action: "link", decision_id: id,
+          target: "committed.ts", relation: "GOVERNS",
+        });
+        expect(basisOf(repo, id)).toMatch(/^[0-9a-f]{64}$/);
+      } finally {
+        rmSync(repo, { recursive: true, force: true });
+      }
+    });
+
+    // Replacing the governs list left the OLD set's digest in place — a hash
+    // over refs the decision no longer has. Actively wrong, not merely absent.
+    it("recomputes basis_hash when the governs list is replaced", async () => {
+      const repo = makeCommittedRepoFixture();
+      try {
+        writeFileSync(join(repo, "other.ts"), "export const y = 2;\n");
+        const created = await callTool(h, "decision", {
+          repo_path: repo, action: "create", title: "governs will change",
+          description: "d", rationale: "r", governs: ["committed.ts"],
+        });
+        const id = JSON.parse(created.content[0].text as string).id as string;
+        const before = basisOf(repo, id);
+        expect(before).toMatch(/^[0-9a-f]{64}$/);
+
+        await callTool(h, "decision", {
+          repo_path: repo, action: "update", id, governs: ["other.ts"],
+        });
+        const after = basisOf(repo, id);
+        expect(after).toMatch(/^[0-9a-f]{64}$/);
+        expect(after).not.toBe(before);
+      } finally {
+        rmSync(repo, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe("provenance is visible on MCP reads", () => {
+    // Filters landed before the fields were readable, so an agent could filter
+    // by branch but never SEE any row's branch — no way to discover a valid
+    // filter value. The HTTP adapters were widened; the MCP mappers are a
+    // separate path and were missed.
+    it("returns the real origin branch from decision get", async () => {
+      const repo = makeCommittedRepoFixture();
+      try {
+        const created = await callTool(h, "decision", {
+          repo_path: repo, action: "create", title: "visible provenance",
+          description: "d", rationale: "r",
+        });
+        const id = JSON.parse(created.content[0].text as string).id as string;
+        const realBranch = execSync(`git -C "${repo}" branch --show-current`).toString().trim();
+
+        const got = await callTool(h, "decision", { repo_path: repo, action: "get", id });
+        const body = JSON.parse(got.content[0].text as string);
+        expect(body.origin_branch).toBe(realBranch);
+        expect(body.last_touched_branch).toBe(realBranch);
+      } finally {
+        rmSync(repo, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe("last-touched provenance", () => {
+    it("keeps origin immutable across an update", async () => {
+      const created = await callTool(h, "decision", {
+        action: "create", title: "immutable", description: "d", rationale: "r",
+      });
+      const id = JSON.parse(created.content[0].text as string).id as string;
+      const db = openDecisionsDb(resolveDecisionsDbPath(h.repoPath));
+      try {
+        const before = db.prepare("SELECT origin_branch, origin_commit FROM decisions WHERE id=?").get(id);
+        await callTool(h, "decision", { action: "update", id, title: "changed" });
+        const after = db.prepare("SELECT origin_branch, origin_commit FROM decisions WHERE id=?").get(id);
+        expect(after).toEqual(before);
+      } finally {
+        db.close();
+      }
+    });
+
+    it("rewrites last_touched_* on update to the checkout's real branch/commit", async () => {
+      const repo = makeCommittedRepoFixture();
+      try {
+        const created = await callTool(h, "decision", {
+          repo_path: repo, action: "create", title: "touch me", description: "d", rationale: "r",
+        });
+        const id = JSON.parse(created.content[0].text as string).id as string;
+        const realBranch = execSync(`git -C "${repo}" branch --show-current`).toString().trim();
+        const realCommit = execSync(`git -C "${repo}" rev-parse HEAD`).toString().trim();
+
+        const db = openDecisionsDb(resolveDecisionsDbPath(repo));
+        try {
+          await callTool(h, "decision", { repo_path: repo, action: "update", id, title: "touched" });
+          const row = db.prepare(
+            "SELECT last_touched_branch, last_touched_commit FROM decisions WHERE id=?",
+          ).get(id) as { last_touched_branch: string | null; last_touched_commit: string | null };
+          // Real values, not just "the column exists" — a deleted stamping
+          // implementation would leave these null (or whatever create()
+          // wrote) rather than the checkout's actual current branch/commit.
+          expect(row.last_touched_branch).toBe(realBranch);
+          expect(row.last_touched_commit).toBe(realCommit);
+        } finally {
+          db.close();
+        }
+      } finally {
+        rmSync(repo, { recursive: true, force: true });
+      }
+    });
+
+    it("bumps updated_at when a link is added (closes the pre-existing addLink gap)", async () => {
+      const created = await callTool(h, "decision", {
+        action: "create", title: "link bumps updated_at", description: "d", rationale: "r",
+      });
+      const id = JSON.parse(created.content[0].text as string).id as string;
+      const db = openDecisionsDb(resolveDecisionsDbPath(h.repoPath));
+      try {
+        const before = db.prepare("SELECT updated_at FROM decisions WHERE id=?").get(id) as { updated_at: string };
+        await new Promise((r) => setTimeout(r, 5));
+        await callTool(h, "decision", {
+          action: "link", decision_id: id, target: "src/link-bump.ts", relation: "GOVERNS",
+        });
+        const after = db.prepare("SELECT updated_at FROM decisions WHERE id=?").get(id) as { updated_at: string };
+        expect(after.updated_at).not.toBe(before.updated_at);
+      } finally {
+        db.close();
       }
     });
   });

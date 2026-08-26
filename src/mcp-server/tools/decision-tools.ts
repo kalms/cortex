@@ -9,6 +9,7 @@
  * tests/mcp-server/decision-ref-parity.test.ts.
  */
 import { z } from "zod";
+import { captureOrigin } from "../../git/origin.js";
 import { DecisionService } from "../../decisions/service.js";
 import { DecisionSearch } from "../../decisions/search.js";
 import { ok, empty, error as errorResponse } from "../response.js";
@@ -18,8 +19,8 @@ import { frameCandidates } from "../../decisions/seed/frame-candidates.js";
 import { type RepoContext, type RepoContextResolver, deriveProjectName } from "../repo-context.js";
 import { freshnessForContext, attachFreshness } from "../freshness.js";
 import type { EventBus } from "../../events/bus.js";
-import { attachDecisionReconciliation, decisionDisplayState } from "../reconciliation-attach.js";
-import { RECONCILE_ENABLED } from "../../decisions/reconciliation.js";
+import { attachDecisionReconciliation, decisionDisplayState, governedRefs, restampBasis } from "../reconciliation-attach.js";
+import { hashGovernedSource } from "../../decisions/reconciliation.js";
 import { RepoPathField, AlternativeSchema, ProvenanceSchema } from "./shared-fields.js";
 import { execAction } from "./exec-action.js";
 
@@ -45,6 +46,7 @@ const createDecisionShape = {
   references: z.array(z.string()).optional().describe("Node IDs of external reference nodes"),
   problem: z.string().optional().describe("Narrative: what question this decision answers"),
   resolution: z.string().optional().describe("Narrative: what was decided"),
+  thread: z.string().optional().describe("Caller-supplied thread/session id for origin provenance"),
 } as const;
 const createDecisionSchema = z.object(createDecisionShape);
 
@@ -64,6 +66,10 @@ const searchDecisionsShape = {
   scope: z.string().optional().describe("Qualified name or file path to scope results"),
   cross_repo: z.boolean().optional()
     .describe("Fan out over every registered repo; results grouped per repo"),
+  branch: z.string().min(1).optional()
+    .describe("Exact match filter on origin_branch (never matches a NULL-origin row)"),
+  thread: z.string().min(1).optional()
+    .describe("Exact match filter on origin_thread (never matches a NULL-origin row)"),
 } as const;
 const searchDecisionsSchema = z.object(searchDecisionsShape);
 
@@ -120,6 +126,7 @@ const proposeDecisionShape = {
   pr_number: z.number().int().optional(),
   author: z.string().optional().describe("Author marker; seeded candidates use 'cortex:seed'"),
   provenance: ProvenanceSchema.optional().describe("Machine-derived source (commits/docs) for review verification"),
+  thread: z.string().optional().describe("Caller-supplied thread/session id for origin provenance"),
 } as const;
 const proposeDecisionSchema = z.object(proposeDecisionShape);
 
@@ -183,11 +190,23 @@ export async function createDecisionAction(
     );
   }
   return execAction(null, () => {
-    // Strip repo_path before forwarding to the service — it's a routing
-    // concern, not a decision field. The remaining args shape is the
-    // legacy CreateDecisionInput contract.
-    const { repo_path: _repoPath, ...createArgs } = args;
-    const decision = serviceForCtx(ctx, bus, indexerProject).create(createArgs);
+    // Strip repo_path (routing concern) and thread (folded into origin
+    // below) before forwarding to the service — the remaining args shape is
+    // the legacy CreateDecisionInput contract. captureOrigin is called HERE,
+    // in the handler, on ctx.repoPath (the checkout root) — never in the
+    // service, which stays free of git dependencies.
+    const { repo_path: _repoPath, thread, ...createArgs } = args;
+    const origin = captureOrigin(ctx.repoPath, thread ?? null);
+    const decision = serviceForCtx(ctx, bus, indexerProject).create({ ...createArgs, origin });
+    // basis_hash must be computed AFTER the GOVERNS links created above have
+    // landed (create() writes them synchronously) — otherwise governedRefs
+    // returns [] and every decision gets the same meaningless digest.
+    // ctx.repoPath is the CHECKOUT root (2.0.0 two-axis split) — never the
+    // canonical root. See tests/decisions/basis-anchoring.test.ts.
+    const refs = governedRefs(ctx, decision.id);
+    if (refs.length > 0) {
+      ctx.decisionsRepo.update(decision.id, { basis_hash: hashGovernedSource(ctx.repoPath, refs) });
+    }
     return ok(JSON.stringify(decision, null, 2));
   });
 }
@@ -206,8 +225,16 @@ export async function proposeDecisionAction(
     );
   }
   return execAction(null, () => {
-    const { repo_path: _repoPath, ...proposeArgs } = args;
-    const d = serviceForCtx(ctx, bus, indexerProject).propose(proposeArgs);
+    const { repo_path: _repoPath, thread, ...proposeArgs } = args;
+    const origin = captureOrigin(ctx.repoPath, thread ?? null);
+    const d = serviceForCtx(ctx, bus, indexerProject).propose({ ...proposeArgs, origin });
+    // Same ordering + anchoring rules as createDecisionAction above:
+    // propose() writes GOVERNS links synchronously before returning, and
+    // ctx.repoPath is the checkout root the basis must be anchored to.
+    const refs = governedRefs(ctx, d.id);
+    if (refs.length > 0) {
+      ctx.decisionsRepo.update(d.id, { basis_hash: hashGovernedSource(ctx.repoPath, refs) });
+    }
     return ok(JSON.stringify(d, null, 2));
   });
 }
@@ -227,7 +254,19 @@ export async function supersedeDecisionAction(
   }
   return execAction(`supersede_decision(${args.old_decision_id})`, () => {
     const { repo_path: _repoPath, ...supersedeArgs } = args;
-    const d = serviceForCtx(ctx, bus, indexerProject).supersede(supersedeArgs);
+    // captureOrigin is called HERE, in the handler, on ctx.repoPath (the
+    // checkout root) — never in the service. supersede() mutates the OLD
+    // decision's status; this refreshes its last_touched_*.
+    const origin = captureOrigin(ctx.repoPath);
+    const d = serviceForCtx(ctx, bus, indexerProject).supersede({ ...supersedeArgs, origin });
+    // The REPLACEMENT is a decision authored now, so it needs its own basis —
+    // same ordering and anchoring rules as createDecisionAction: supersede()
+    // writes its GOVERNS links synchronously before returning, and
+    // ctx.repoPath is the checkout root the basis must be anchored to.
+    const refs = governedRefs(ctx, d.id);
+    if (refs.length > 0) {
+      ctx.decisionsRepo.update(d.id, { basis_hash: hashGovernedSource(ctx.repoPath, refs) });
+    }
     return ok(JSON.stringify(d, null, 2));
   });
 }
@@ -247,7 +286,16 @@ export async function updateDecisionAction(
   }
   const { repo_path: _repoPath, id, ...updates } = args;
   return execAction(`update_decision(${id})`, () => {
-    const decision = serviceForCtx(ctx, bus, indexerProject).update(id, updates);
+    // captureOrigin is called HERE, in the handler, on ctx.repoPath (the
+    // checkout root) — never in the service, which stays free of git
+    // dependencies. Rewrites last_touched_* only — origin is immutable.
+    const origin = captureOrigin(ctx.repoPath);
+    const decision = serviceForCtx(ctx, bus, indexerProject).update(id, { ...updates, origin });
+    // A governs replacement changes what the decision governs, so its basis
+    // must be recomputed — otherwise the row keeps a digest over the OLD ref
+    // set. Only when `governs` was actually supplied: re-stamping on an
+    // unrelated edit (a title fix) would move the reference point for free.
+    if (updates.governs !== undefined) restampBasis(ctx, decision.id);
     return ok(JSON.stringify(decision, null, 2));
   });
 }
@@ -313,12 +361,33 @@ export async function searchDecisionsAction(
   indexerProject?: string | null,
   resolver?: RepoContextResolver,
 ) {
-  const { query, scope } = args;
+  const { query, scope, branch, thread } = args;
+  // `branch` carries .min(1) at the schema level; `thread` cannot, because it
+  // is a SHARED field that create/propose also use, where an empty thread
+  // legitimately reads as absent. Guard it per-action instead, so the filter
+  // surface matches HTTP (which 400s on an empty value) without narrowing the
+  // authoring surface.
+  if (thread !== undefined && thread.trim() === "") {
+    return errorResponse(
+      "malformed_input",
+      "thread filter cannot be empty — omit it to search unfiltered",
+    );
+  }
   if (args.cross_repo) {
     if (scope) {
       return errorResponse(
         "malformed_input",
         "scope cannot be combined with cross_repo — scope is a single-repo governs filter",
+      );
+    }
+    // Fail closed rather than fan out unfiltered. An origin branch or thread
+    // names a checkout/session of ONE repo, so it cannot mean anything across
+    // repos. Silently ignoring them returned a full, plausible result set that
+    // no caller could distinguish from a successful filtered query.
+    if (branch || thread) {
+      return errorResponse(
+        "malformed_input",
+        "branch/thread cannot be combined with cross_repo — an origin branch or thread names a checkout of a single repo. Drop cross_repo to filter within one repo, or drop branch/thread to fan out.",
       );
     }
     return execAction(null, () =>
@@ -335,9 +404,24 @@ export async function searchDecisionsAction(
       const allowed = new Set(governing.map((d) => d.id));
       results = results.filter((d) => allowed.has(d.id));
     }
+    if (branch !== undefined || thread !== undefined) {
+      // Origin columns live on the raw DecisionRecord, not the mapped
+      // Decision domain shape `search()` returns (see toDecision in map.ts,
+      // which drops them) — look each hit up by id to filter on
+      // origin_branch/origin_thread. `raw?.origin_branch === branch` is
+      // NULL-safe by construction: an unstamped row's origin_branch is
+      // null/undefined, which never === a defined filter string — mirrors
+      // the SQL `NULL = 'x'` semantics DecisionsRepository.list() relies on
+      // (never matches an unstamped row). Applied the same post-filter way
+      // as `scope` above, to avoid touching the FTS query.
+      results = results.filter((d) => {
+        const raw = ctx.decisionsRepo.get(d.id);
+        return (branch === undefined || raw?.origin_branch === branch)
+          && (thread === undefined || raw?.origin_thread === thread);
+      });
+    }
     if (results.length === 0) return empty(`search_decisions(${query})`);
     const okResult = ok(JSON.stringify(results, null, 2));
-    if (!RECONCILE_ENABLED()) return okResult;
     const rawForAttach = results
       .map((r) => ctx.decisionsRepo.get(r.id))
       .filter((d): d is NonNullable<typeof d> => d != null);
@@ -499,7 +583,6 @@ export async function whyWasThisBuiltAction(
       return attachWhyFreshness(ctx, empty(`why_was_this_built(${qualified_name})`));
     }
     const okResult = ok(JSON.stringify(results, null, 2));
-    if (!RECONCILE_ENABLED()) return attachWhyFreshness(ctx, okResult);
     const rawForAttach = results
       .map((r) => ctx.decisionsRepo.get(r.id))
       .filter((d): d is NonNullable<typeof d> => d != null);
@@ -541,10 +624,20 @@ export async function linkDecisionAction(
   return execAction(`link_decision(${decision_id})`, () => {
     const rel = relation ?? "GOVERNS";
     const scopedService = serviceForCtx(ctx, bus, indexerProject);
-    if (rel === "GOVERNS") scopedService.linkGoverns(decision_id, target);
-    else if (rel === "REFERENCES") scopedService.linkReference(decision_id, target);
-    else if (rel === "RELATED_TO") scopedService.linkRelatedTo(decision_id, target);
-    else if (rel === "DEPENDS_ON") scopedService.linkDependsOn(decision_id, target);
+    // captureOrigin is called HERE, in the handler, on ctx.repoPath (the
+    // checkout root) — never in the service. Adding a link is a mutation of
+    // the owning decision, so it bumps last_touched_* like any other write.
+    const origin = captureOrigin(ctx.repoPath);
+    if (rel === "GOVERNS") scopedService.linkGoverns(decision_id, target, origin);
+    else if (rel === "REFERENCES") scopedService.linkReference(decision_id, target, origin);
+    else if (rel === "RELATED_TO") scopedService.linkRelatedTo(decision_id, target, origin);
+    else if (rel === "DEPENDS_ON") scopedService.linkDependsOn(decision_id, target, origin);
+    // Only a GOVERNS link changes the governed set. The other three relations
+    // are bookkeeping between decisions and leave the basis meaningless-to-move.
+    if (rel === "GOVERNS") {
+      const canonicalId = scopedService.resolveId(decision_id);
+      if (canonicalId) restampBasis(ctx, canonicalId);
+    }
     return ok(JSON.stringify({ linked: true, decision_id, target, relation: rel }));
   });
 }

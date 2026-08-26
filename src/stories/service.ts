@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import { mintId } from "../ids/allocator.js";
 import { parseRef } from "../ids/short-id.js";
+import type { OriginFields } from "../git/origin.js";
 import { StoriesRepository, StoryStepsRepository } from "./repository.js";
 import { StoryLinksRepository } from "./links-repository.js";
 import { rowToStory, rowToStep, type Story, type StoryRecord, type StoryWithSteps, type CreateStoryInput } from "./types.js";
@@ -35,10 +36,19 @@ export class StoryService {
     const now = new Date().toISOString();
     return this.db.transaction((): StoryWithSteps => {
       const { id, seq } = mintId(this.db, "story", (cand) => this.stories.get(cand) != null);
+      const origin = input.origin ?? null;
       const rec: StoryRecord = {
         id, seq, title: input.title, description: input.description ?? null,
         status: input.closed ? "closed" : "open", created_by: input.created_by ?? "claude",
         created_at: now, updated_at: now,
+        // Origin is stamped once, here, and never rewritten. Last-touched
+        // starts equal to origin.
+        origin_branch: origin?.branch ?? null,
+        origin_commit: origin?.commit ?? null,
+        origin_thread: origin?.thread ?? null,
+        last_touched_branch: origin?.branch ?? null,
+        last_touched_commit: origin?.commit ?? null,
+        last_touched_thread: origin?.thread ?? null,
       };
       this.stories.insert(rec);
       this.steps.insertAll(input.steps.map((s, i) => ({
@@ -67,12 +77,12 @@ export class StoryService {
     return this.stories.list().map((rec) => rowToStory(rec, counts.get(rec.id) ?? 0));
   }
 
-  close(idOrSeq: string): Story {
+  close(idOrSeq: string, origin?: OriginFields | null): Story {
     const existing = this.resolveRecord(idOrSeq);
     if (!existing) throw new Error(`Story not found: ${idOrSeq}`);
     if (existing.status !== "closed") {
       const now = new Date().toISOString();
-      this.stories.setStatus(existing.id, "closed", now);
+      this.stories.setStatus(existing.id, "closed", now, origin);
       existing.status = "closed";
       existing.updated_at = now;
     }

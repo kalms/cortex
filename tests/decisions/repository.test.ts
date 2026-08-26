@@ -41,6 +41,17 @@ describe("DecisionsRepository", () => {
       reconciled_by: null,
       nonconformant_nodes: null,
       reconciliation_note: null,
+      // Git-identity columns (Task 9: now projected by every read) — null
+      // unless a test explicitly stamps them via overrides.
+      origin_branch: null,
+      origin_commit: null,
+      origin_thread: null,
+      last_touched_branch: null,
+      last_touched_commit: null,
+      last_touched_thread: null,
+      basis_hash: null,
+      reconciled_branch: null,
+      reconciled_commit: null,
       ...overrides,
     };
   }
@@ -76,6 +87,27 @@ describe("DecisionsRepository", () => {
 
   it("get returns null for missing id", () => {
     expect(repo.get("missing")).toBeNull();
+  });
+
+  it("update silently drops write-once keys even when a caller bypasses the compile-time exclusion", () => {
+    // DecisionUpdate excludes origin_*/id/seq/created_at/provenance at
+    // compile time, but that guard is walkable with `as never` — this proves
+    // the runtime allow-list in DecisionsRepository.update is the actual
+    // backstop for "origin is immutable after create".
+    repo.insert(sample({ origin_branch: "feature/orig", origin_commit: "aaa" } as never));
+    repo.update("d1", {
+      origin_branch: "HACKED-AT-REPO-LEVEL",
+      origin_commit: "HACKED",
+      id: "not-d1",
+      seq: 999,
+      created_at: "1970-01-01T00:00:00Z",
+      title: "still updates ordinary fields",
+    } as never);
+    const db2 = db.prepare("SELECT * FROM decisions WHERE id='d1'").get() as Record<string, unknown>;
+    expect(db2.origin_branch).toBe("feature/orig"); // NOT overwritten
+    expect(db2.origin_commit).toBe("aaa"); // NOT overwritten
+    expect(db2.created_at).toBe("2026-05-14T10:00:00Z"); // NOT overwritten
+    expect(db2.title).toBe("still updates ordinary fields"); // ordinary field still applies
   });
 
   it("survives updates to indexed columns with non-trivial content", () => {

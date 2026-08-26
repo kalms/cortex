@@ -58,4 +58,41 @@ describe("DecisionPromotion", () => {
   it("throws for non-existent decision", () => {
     expect(() => promotion.promote("fake-id", "team")).toThrow("Decision not found");
   });
+
+  it("stamps last_touched_* from the passed origin, leaving origin_* alone", () => {
+    const decision = svc.create({
+      title: "Provenance on promote",
+      description: "desc",
+      rationale: "rationale",
+      origin: { branch: "feature/orig", commit: "aaa", thread: null },
+    });
+
+    promotion.promote(decision.id, "team", { branch: "feature/later", commit: "bbb", thread: "th-9" });
+
+    const row = db.prepare(
+      "SELECT origin_branch, origin_commit, last_touched_branch, last_touched_commit, last_touched_thread FROM decisions WHERE id=?",
+    ).get(decision.id) as Record<string, unknown>;
+    expect(row.origin_branch).toBe("feature/orig"); // immutable
+    expect(row.origin_commit).toBe("aaa");
+    expect(row.last_touched_branch).toBe("feature/later");
+    expect(row.last_touched_commit).toBe("bbb");
+    expect(row.last_touched_thread).toBe("th-9");
+  });
+
+  it("defaults last_touched_* to null when promote() is called without an origin", () => {
+    const decision = svc.create({
+      title: "No origin on promote",
+      description: "desc",
+      rationale: "rationale",
+    });
+
+    promotion.promote(decision.id, "team");
+
+    const row = db.prepare(
+      "SELECT last_touched_branch, last_touched_commit, last_touched_thread FROM decisions WHERE id=?",
+    ).get(decision.id) as Record<string, unknown>;
+    expect(row.last_touched_branch).toBeNull();
+    expect(row.last_touched_commit).toBeNull();
+    expect(row.last_touched_thread).toBeNull();
+  });
 });

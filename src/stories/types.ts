@@ -1,3 +1,5 @@
+import type { OriginFields } from "../git/origin.js";
+
 export type StoryStatus = "open" | "closed";
 
 export interface StoryStep {
@@ -18,6 +20,15 @@ export interface Story {
   created_at: string;
   updated_at: string;
   step_count: number;
+  // Git identity, surfaced on reads so a caller can see which checkout a story
+  // came from. Null on pre-provenance rows, never backfilled. No basis_hash
+  // (a story governs nothing) and no reconciled_* (never reconciled).
+  origin_branch: string | null;
+  origin_commit: string | null;
+  origin_thread: string | null;
+  last_touched_branch: string | null;
+  last_touched_commit: string | null;
+  last_touched_thread: string | null;
 }
 
 export interface StoryWithSteps extends Story {
@@ -36,6 +47,17 @@ export interface StoryRecord {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  // Git identity columns (authored-content provenance). Origin is stamped
+  // once at create and never rewritten; last-touched is rewritten by every
+  // mutating path. Optional so pre-existing inline literals typecheck — DB
+  // rows always carry the columns (NULL until stamped). No basis_hash:
+  // stories govern nothing, so there is no basis to hash.
+  origin_branch?: string | null;
+  origin_commit?: string | null;
+  origin_thread?: string | null;
+  last_touched_branch?: string | null;
+  last_touched_commit?: string | null;
+  last_touched_thread?: string | null;
 }
 
 export interface StoryStepRecord {
@@ -54,6 +76,7 @@ export interface CreateStoryInput {
   closed?: boolean; // explain-architecture creates already-closed
   steps: Array<{ caption: string; refs: string[]; emphasis_edges?: [string, string][]; layout_hint?: "network" | "organic" }>;
   links?: { decision_ids?: string[]; pr_number?: number };
+  origin?: OriginFields; // git identity captured by the tool handler
 }
 
 export function rowToStory(rec: StoryRecord, stepCount: number): Story {
@@ -67,6 +90,12 @@ export function rowToStory(rec: StoryRecord, stepCount: number): Story {
     created_at: rec.created_at,
     updated_at: rec.updated_at,
     step_count: stepCount,
+    origin_branch: rec.origin_branch ?? null,
+    origin_commit: rec.origin_commit ?? null,
+    origin_thread: rec.origin_thread ?? null,
+    last_touched_branch: rec.last_touched_branch ?? null,
+    last_touched_commit: rec.last_touched_commit ?? null,
+    last_touched_thread: rec.last_touched_thread ?? null,
   };
 }
 

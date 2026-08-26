@@ -2,6 +2,7 @@ import type { GraphStore } from "../graph/store.js";
 import type { Event } from "../events/types.js";
 import { newUlid } from "../events/ulid.js";
 import type { DecisionLinksRepository } from "../decisions/links-repository.js";
+import type { OriginFields } from "../git/origin.js";
 import type {
   PullRequest,
   OpenPRInput,
@@ -116,7 +117,7 @@ export class PRService {
     return node ? this.nodeToPr(node) : null;
   }
 
-  merge(number: number): { pr_number: number; ratified_decisions: string[] } {
+  merge(number: number, origin?: OriginFields | null): { pr_number: number; ratified_decisions: string[] } {
     return this.store.transaction(() => {
       const node = this.findByNumber(number);
       if (!node) throw new Error(`PR not found: #${number}`);
@@ -142,7 +143,7 @@ export class PRService {
           const dec = this.decisions.get(link.decision_id);
           if (!dec) continue;
           if (dec.status === "proposed") {
-            this.decisions.ratify(link.decision_id, number);
+            this.decisions.ratify(link.decision_id, number, origin);
             ratified.push(link.decision_id);
           }
         }

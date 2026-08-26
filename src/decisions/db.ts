@@ -240,6 +240,52 @@ function ensureReconciliationColumns(db: Database.Database): void {
   }
 }
 
+/** The six git-identity columns every authored entity carries. Origin is
+ *  immutable after create; last-touched is rewritten by every mutating path. */
+const PROVENANCE_COLUMNS: Array<[string, string]> = [
+  ["origin_branch", "TEXT"],
+  ["origin_commit", "TEXT"],
+  ["origin_thread", "TEXT"],
+  ["last_touched_branch", "TEXT"],
+  ["last_touched_commit", "TEXT"],
+  ["last_touched_thread", "TEXT"],
+];
+
+/** Additively add columns to a table if absent. Idempotent, mirroring
+ *  ensureReconciliationColumns — self-checking via PRAGMA rather than the
+ *  _cortex_migrations ledger, because these are purely additive and must not
+ *  make an older Cortex refuse the store. */
+function ensureColumns(db: Database.Database, table: string, additions: Array<[string, string]>): void {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  const have = new Set(cols.map((c) => c.name));
+  for (const [name, type] of additions) {
+    if (!have.has(name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+  }
+}
+
+/** Provenance + reference-point columns.
+ *
+ *  Deliberately asymmetric, and the asymmetry is the design:
+ *  - decisions get provenance + basis_hash + the reconciled_* verdict stamp;
+ *  - todos get provenance + basis_hash but NO verdict lifecycle — the answer to
+ *    a stale todo is a state transition, which already exists;
+ *  - stories get provenance only — they govern nothing, so there is no basis to
+ *    hash.
+ *
+ *  Pre-existing rows read NULL and are never backfilled: a NULL basis_hash is
+ *  unknowable, not zero, and a fabricated one would silently certify every old
+ *  row as clean. */
+function ensureProvenanceColumns(db: Database.Database): void {
+  ensureColumns(db, "decisions", [
+    ...PROVENANCE_COLUMNS,
+    ["basis_hash", "TEXT"],
+    ["reconciled_branch", "TEXT"],
+    ["reconciled_commit", "TEXT"],
+  ]);
+  ensureColumns(db, "todos", [...PROVENANCE_COLUMNS, ["basis_hash", "TEXT"]]);
+  ensureColumns(db, "stories", [...PROVENANCE_COLUMNS]);
+}
+
 /** Open (and create if missing) the decisions sidecar DB. */
 export function openDecisionsDb(path: string, legacyPath?: string): Database.Database {
   mkdirSync(dirname(path), { recursive: true });
@@ -252,6 +298,7 @@ export function openDecisionsDb(path: string, legacyPath?: string): Database.Dat
   // Ensure reconciliation columns exist before FTS migration,
   // which may try to read from them when rebuilding the index.
   ensureReconciliationColumns(db);
+  ensureProvenanceColumns(db);   // after BASE_SCHEMA + TODOS table exist, before FTS rebuild reads columns
   db.exec(TODOS_FTS_SCHEMA);
   if (readSchemaMeta(db, "fts_version") !== FTS_VERSION) {
     migrateFtsToTriggers(db);

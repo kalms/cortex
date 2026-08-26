@@ -18,6 +18,80 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [2.1.0] — 2026-08-26
+
+Authored content — decisions, todos and stories — now carries **git identity**.
+Until now it lived in one flat per-repo store with no branch or worktree
+identity, while the code it governs is branch-scoped: there was no way to ask
+which checkout a decision was written on, or whether the code it describes has
+moved since.
+
+### Added
+
+- **Nine provenance columns on authored content**, with a deliberate asymmetry.
+  All three entities carry `origin_branch`/`origin_commit`/`origin_thread` (the
+  checkout a row was *created* on) and `last_touched_branch`/`_commit`/`_thread`
+  (the checkout that last *mutated* it). `basis_hash` is on decisions and todos
+  only — a story governs nothing, so it has no basis to hash — and
+  `reconciled_branch`/`reconciled_commit` on decisions only, since todos and
+  stories are never reconciled. Existing rows read `NULL` on every new column
+  and are **never backfilled**: a null `basis_hash` means *unknowable*, not
+  *unchanged*, and fabricating one from the current tree would silently certify
+  every pre-existing row as clean.
+- **`captureOrigin(path, thread?)`** (`src/git/origin.ts`) — best-effort git
+  identity that **never throws**. Provenance is metadata attached to a write,
+  not the write itself, so a non-git path, a commit-less repo, a detached HEAD
+  or a missing `git` binary degrade to nulls rather than failing a caller's
+  create. Branch and commit degrade independently: a detached HEAD records a
+  commit with no branch.
+- **`basis_hash`, always anchored to the checkout root.** Anchoring to the
+  canonical root would compare against a tree that never moves, so every row
+  would read clean forever. Stamped at create and recomputed whenever the
+  `GOVERNS` set changes; on reconcile it moves only for a `match` verdict, since
+  `partial` and `drift` assert the opposite and re-stamping there would adopt
+  divergent code as the new baseline.
+- **`branch` / `thread` filters** on `GET /api/decisions|todos|stories` and on
+  `decision({action:"search"})` / `todo({action:"list"|"search"})`. Exact match
+  against the row's origin; an absent filter preserves previous behaviour
+  exactly, and **a filter never matches a NULL origin** — a row with no recorded
+  origin is not "on" any branch. Empty filter values are rejected rather than
+  silently ignored, and `branch`/`thread` cannot be combined with `cross_repo`
+  (an origin branch names a checkout of one repo).
+- **Provenance on the read surfaces** — HTTP adapters carry camelCase
+  `originBranch`, `lastTouchedCommit`, `basisHash` and friends; the MCP read
+  shapes carry the snake_case equivalents. `CONTRACT_VERSION` stays **1**: every
+  new field is additive and `.nullable().optional()`.
+- **`resolveGovernedRefs`** — per-ref resolution state (`resolved` / `missing` /
+  `unresolvable`), the information `hashGovernedSource` already computed and
+  discarded.
+
+### Changed
+
+- **Reconciliation annotations are always on.** The `CORTEX_RECONCILE` opt-in
+  flag is removed: an opt-in flag on the only detector that exists is
+  incompatible with detecting anything reliably, and it had never been switched
+  on. (Recording verdicts and the pending queue were always live; this widens
+  surfacing, not writing.)
+- **`decision({action:"reconcile", verdict:"match"})` is refused while any
+  governed ref is missing or unresolvable**, naming the offending refs.
+  Accepting a match in that state freezes the `<missing>` sentinel into the
+  stored hash, so the row compares equal forever and goes permanently quiet
+  while governing code that does not exist. `partial` and `drift` stay open.
+
+### Fixed
+
+- **`supersede` minted a decision with no git identity at all.** The replacement
+  is authored now, but was created with no origin threaded and no basis
+  computed, leaving it permanently unknowable and never drift-detectable
+  despite accepting `governs`.
+- **`cortex reconcile status` anchored to the cwd**, so running it from a
+  subdirectory resolved every governed ref to `<missing>` and reported a clean
+  store as entirely drifted. Harmless while the flag gated it; always-on now.
+- **`captureOrigin("")` reported the calling process's own branch and commit** —
+  `git -C ""` is treated by git as if no `-C` were given — attributing a row to
+  a checkout it never came from.
+- **Adding a link never bumped the owning row's `updated_at`.**
+
 ## [2.0.4] — 2026-08-26
 
 ### Fixed
@@ -2171,6 +2245,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[2.1.0]: https://github.com/ruevu/cortex/releases/tag/v2.1.0
 [2.0.4]: https://github.com/ruevu/cortex/releases/tag/v2.0.4
 [2.0.3]: https://github.com/ruevu/cortex/releases/tag/v2.0.3
 [2.0.2]: https://github.com/ruevu/cortex/releases/tag/v2.0.2

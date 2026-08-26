@@ -1,5 +1,101 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createHarness, type HarnessContext, callTool } from "./harness.js";
+import { createHarness, type HarnessContext, callTool, makeIndexedRepoFixture } from "./harness.js";
+import { openDecisionsDb } from "../../src/decisions/db.js";
+import { resolveDecisionsDbPath } from "../../src/db/resolve-path.js";
+import { execSync } from "node:child_process";
+import { writeFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
+
+function makeCommittedRepoFixture(): string {
+  const root = makeIndexedRepoFixture();
+  writeFileSync(join(root, "committed.ts"), "export const x = 1;\n");
+  execSync(`git -C "${root}" add .`, { stdio: "ignore" });
+  execSync(`git -C "${root}" commit -q --no-gpg-sign -m seed`, { stdio: "ignore" });
+  return root;
+}
+
+describe("todo provenance is visible on MCP reads", () => {
+  let h: HarnessContext;
+  beforeAll(async () => { h = await createHarness(); });
+  afterAll(async () => { await h.close(); });
+
+  // The decision side had create-time basis coverage from the start; the todo
+  // side was implemented but never asserted, so a refactor of governedTodoRefs
+  // or the propose stamp would have had no automated net.
+  it("stamps basis_hash at propose when the todo governs something", async () => {
+    const repo = makeCommittedRepoFixture();
+    try {
+      const governed = await callTool(h, "todo", {
+        repo_path: repo, action: "propose", summary: "governs at birth", governs: ["committed.ts"],
+      });
+      const governedId = JSON.parse(governed.content[0].text).id as string;
+      const bare = await callTool(h, "todo", {
+        repo_path: repo, action: "propose", summary: "governs nothing",
+      });
+      const bareId = JSON.parse(bare.content[0].text).id as string;
+
+      const db = openDecisionsDb(resolveDecisionsDbPath(repo));
+      try {
+        const basis = (id: string) => (db.prepare("SELECT basis_hash FROM todos WHERE id=?").get(id) as
+          { basis_hash: string | null }).basis_hash;
+        expect(basis(governedId)).toMatch(/^[0-9a-f]{64}$/);
+        // Governing nothing must stay NULL, never a digest of the empty set —
+        // otherwise every ungoverned todo shares one meaningless hash.
+        expect(basis(bareId)).toBeNull();
+      } finally { db.close(); }
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("stamps basis_hash when a GOVERNS link is added to a todo later", async () => {
+    const repo = makeCommittedRepoFixture();
+    try {
+      const proposed = await callTool(h, "todo", {
+        repo_path: repo, action: "propose", summary: "gains governance later",
+      });
+      const id = JSON.parse(proposed.content[0].text).id as string;
+      const basisOf = (): string | null => {
+        const db = openDecisionsDb(resolveDecisionsDbPath(repo));
+        try {
+          return (db.prepare("SELECT basis_hash FROM todos WHERE id=?").get(id) as
+            { basis_hash: string | null }).basis_hash;
+        } finally { db.close(); }
+      };
+      expect(basisOf()).toBeNull();
+
+      await callTool(h, "todo", {
+        repo_path: repo, action: "link", id, target: "committed.ts", relation: "GOVERNS",
+      });
+      expect(basisOf()).toMatch(/^[0-9a-f]{64}$/);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  // Committed fixture deliberately: on a commit-less repo a real value and
+  // NULL are indistinguishable, so this would pass against a deleted mapper.
+  it("returns the real origin branch from todo get and list", async () => {
+    const repo = makeCommittedRepoFixture();
+    try {
+      const proposed = await callTool(h, "todo", {
+        repo_path: repo, action: "propose", summary: "visible provenance todo",
+      });
+      const id = JSON.parse(proposed.content[0].text).id as string;
+      const realBranch = execSync(`git -C "${repo}" branch --show-current`).toString().trim();
+
+      const got = JSON.parse((await callTool(h, "todo", { repo_path: repo, action: "get", id })).content[0].text);
+      expect(got.origin_branch).toBe(realBranch);
+
+      const listed = JSON.parse((await callTool(h, "todo", { repo_path: repo, action: "list" })).content[0].text);
+      const rows = Array.isArray(listed) ? listed : listed.todos;
+      expect(rows.length).toBeGreaterThan(0);
+      expect(rows.find((t: { id: string }) => t.id === id).origin_branch).toBe(realBranch);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("todo tool contract — lifecycle", () => {
   let h: HarnessContext;
@@ -58,6 +154,41 @@ describe("todo tool contract — lifecycle", () => {
     const isErrorEnvelope = res.isError === true || text.startsWith("ERROR reason=");
     const isMissingField = text.includes("requires 'summary'") || text.includes("summary") || isErrorEnvelope;
     expect(isMissingField).toBe(true);
+  });
+});
+
+describe("todo tool last-touched provenance", () => {
+  let h: HarnessContext;
+  beforeAll(async () => { h = await createHarness(); });
+  afterAll(async () => { await h.close(); });
+
+  it("keeps origin immutable across an update", async () => {
+    const created = await callTool(h, "todo", { action: "propose", summary: "immutable origin" });
+    const id = JSON.parse(created.content[0].text).id as string;
+    const db = openDecisionsDb(resolveDecisionsDbPath(h.repoPath));
+    try {
+      const before = db.prepare("SELECT origin_branch, origin_commit FROM todos WHERE id=?").get(id);
+      await callTool(h, "todo", { action: "update", id, summary: "changed" });
+      const after = db.prepare("SELECT origin_branch, origin_commit FROM todos WHERE id=?").get(id);
+      expect(after).toEqual(before);
+    } finally {
+      db.close();
+    }
+  });
+
+  it("bumps updated_at when a link is added (closes the pre-existing addLink gap)", async () => {
+    const created = await callTool(h, "todo", { action: "propose", summary: "link bumps updated_at" });
+    const id = JSON.parse(created.content[0].text).id as string;
+    const db = openDecisionsDb(resolveDecisionsDbPath(h.repoPath));
+    try {
+      const before = db.prepare("SELECT updated_at FROM todos WHERE id=?").get(id) as { updated_at: string };
+      await new Promise((r) => setTimeout(r, 5));
+      await callTool(h, "todo", { action: "link", id, target: "src/link-bump.ts", relation: "GOVERNS" });
+      const after = db.prepare("SELECT updated_at FROM todos WHERE id=?").get(id) as { updated_at: string };
+      expect(after.updated_at).not.toBe(before.updated_at);
+    } finally {
+      db.close();
+    }
   });
 });
 

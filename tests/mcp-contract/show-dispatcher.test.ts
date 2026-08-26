@@ -9,13 +9,30 @@
 // `showHandler` directly, mirroring decision-dispatcher.test.ts's idiom.
 
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
-import { rmSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
+import { execSync } from "node:child_process";
+import { join } from "node:path";
 import type { AddressInfo } from "node:net";
 import { showHandler, showAction } from "../../src/mcp-server/tools/show-dispatcher.js";
 import { RepoContextResolver } from "../../src/mcp-server/repo-context.js";
 import { ResponseSchema } from "../../src/mcp-server/response.js";
 import { makeIndexedRepoFixture } from "./harness.js";
+import { openDecisionsDb } from "../../src/decisions/db.js";
+import { resolveDecisionsDbPath } from "../../src/db/resolve-path.js";
+
+/** A fixture repo with a real commit, so captureOrigin's gitBranch/gitHead
+ *  produce real values instead of the null degrade the shared `repo` fixture
+ *  (a commit-less `git init`) gives — needed to assert actual
+ *  last_touched_* values, not just column presence. Mirrors
+ *  repoWithGovernedFile() in tests/mcp-server/reconciliation-ref-parity.test.ts. */
+function makeCommittedRepoFixture(): string {
+  const root = makeIndexedRepoFixture();
+  writeFileSync(join(root, "committed.ts"), "export const x = 1;\n");
+  execSync(`git -C "${root}" add .`, { stdio: "ignore" });
+  execSync(`git -C "${root}" commit -q --no-gpg-sign -m seed`, { stdio: "ignore" });
+  return root;
+}
 
 const BINARY_MISSING = process.env.CORTEX_CONTRACT_BINARY_MISSING === "1";
 
@@ -214,6 +231,76 @@ describe.skipIf(BINARY_MISSING)("show dispatcher contract", () => {
       const afterDelete = await dispatch({ repo_path: repo, action: "get", story_id: id });
       expect(ResponseSchema.safeParse(afterDelete).success).toBe(true);
       expect(afterDelete.content[0].text).toMatch(/^No results: /);
+    });
+
+    // Reads must expose the git identity, not just store it — otherwise the
+    // branch/thread filters have no discoverable values.
+    it("surfaces the real origin branch on story get and list", async () => {
+      const committedRepo = makeCommittedRepoFixture();
+      try {
+        const create = await dispatch({
+          repo_path: committedRepo,
+          action: "story",
+          title: "Provenance visible on read",
+          steps: [{ caption: "step", refs: [] }],
+        });
+        const id = JSON.parse(create.content[0].text).story_id;
+        const realBranch = execSync(`git -C "${committedRepo}" branch --show-current`).toString().trim();
+
+        const got = JSON.parse((await dispatch({
+          repo_path: committedRepo, action: "get", story_id: id,
+        })).content[0].text);
+        expect(got.origin_branch).toBe(realBranch);
+
+        const listed = JSON.parse((await dispatch({
+          repo_path: committedRepo, action: "list",
+        })).content[0].text);
+        const rows = Array.isArray(listed) ? listed : listed.stories;
+        expect(rows.length).toBeGreaterThan(0);
+        expect(rows.find((s: { id: string }) => s.id === id).origin_branch).toBe(realBranch);
+      } finally {
+        rmSync(committedRepo, { recursive: true, force: true });
+      }
+    });
+
+    it("close keeps origin immutable and rewrites last_touched_* to the checkout's real branch/commit", async () => {
+      const committedRepo = makeCommittedRepoFixture();
+      try {
+        const create = await dispatch({
+          repo_path: committedRepo,
+          action: "story",
+          title: "Close stamps last-touched",
+          steps: [{ caption: "step", refs: [] }],
+        });
+        const id = JSON.parse(create.content[0].text).story_id;
+        const realBranch = execSync(`git -C "${committedRepo}" branch --show-current`).toString().trim();
+        const realCommit = execSync(`git -C "${committedRepo}" rev-parse HEAD`).toString().trim();
+
+        const db = openDecisionsDb(resolveDecisionsDbPath(committedRepo));
+        try {
+          const before = db.prepare(
+            "SELECT origin_branch, origin_commit FROM stories WHERE id=?",
+          ).get(id);
+
+          const closed = await dispatch({ repo_path: committedRepo, action: "close", story_id: id });
+          expect(closed.isError).toBeFalsy();
+
+          const after = db.prepare(
+            "SELECT origin_branch, origin_commit, last_touched_branch, last_touched_commit FROM stories WHERE id=?",
+          ).get(id) as Record<string, unknown>;
+          // Origin is immutable across the close.
+          expect({ origin_branch: after.origin_branch, origin_commit: after.origin_commit }).toEqual(before);
+          // Real values, not just "the column exists" — a deleted stamping
+          // implementation would leave these at whatever create() wrote
+          // (or null) rather than the checkout's actual current branch/commit.
+          expect(after.last_touched_branch).toBe(realBranch);
+          expect(after.last_touched_commit).toBe(realCommit);
+        } finally {
+          db.close();
+        }
+      } finally {
+        rmSync(committedRepo, { recursive: true, force: true });
+      }
     });
 
     it("action:get on a missing story returns the empty envelope", async () => {

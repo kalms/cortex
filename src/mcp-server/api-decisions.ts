@@ -72,6 +72,15 @@ export function buildAdaptedDecision(
     relatedTo,
     dependsOn,
     provenance: rec.provenance ? JSON.parse(rec.provenance) : null,
+    originBranch: rec.origin_branch ?? null,
+    originCommit: rec.origin_commit ?? null,
+    originThread: rec.origin_thread ?? null,
+    lastTouchedBranch: rec.last_touched_branch ?? null,
+    lastTouchedCommit: rec.last_touched_commit ?? null,
+    lastTouchedThread: rec.last_touched_thread ?? null,
+    basisHash: rec.basis_hash ?? null,
+    reconciledBranch: rec.reconciled_branch ?? null,
+    reconciledCommit: rec.reconciled_commit ?? null,
   };
 }
 

@@ -19,5 +19,14 @@ export function toDecision(rec: DecisionRecord): Decision {
     problem: rec.problem,
     resolution: rec.resolution,
     provenance: rec.provenance ? JSON.parse(rec.provenance) : null,
+    origin_branch: rec.origin_branch ?? null,
+    origin_commit: rec.origin_commit ?? null,
+    origin_thread: rec.origin_thread ?? null,
+    last_touched_branch: rec.last_touched_branch ?? null,
+    last_touched_commit: rec.last_touched_commit ?? null,
+    last_touched_thread: rec.last_touched_thread ?? null,
+    basis_hash: rec.basis_hash ?? null,
+    reconciled_branch: rec.reconciled_branch ?? null,
+    reconciled_commit: rec.reconciled_commit ?? null,
   };
 }

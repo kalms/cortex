@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { PRService } from "../../prs/service.js";
 import { DecisionService } from "../../decisions/service.js";
+import { captureOrigin } from "../../git/origin.js";
 import { ok, empty } from "../response.js";
 import { type RepoContext } from "../repo-context.js";
 import type { EventBus } from "../../events/bus.js";
@@ -124,7 +125,12 @@ export async function mergePRAction(
   indexerProject?: string | null,
 ) {
   return execAction(`merge_pr(#${args.pr_number})`, () => {
-    const result = makePrService(ctx, bus, indexerProject).merge(args.pr_number);
+    // captureOrigin is called HERE, in the handler, on ctx.repoPath (the
+    // checkout root) — never in PRService/DecisionService. A merge that
+    // ratifies a proposed decision refreshes that decision's last_touched_*
+    // from this same checkout.
+    const origin = captureOrigin(ctx.repoPath);
+    const result = makePrService(ctx, bus, indexerProject).merge(args.pr_number, origin);
     return ok(JSON.stringify(result, null, 2));
   });
 }

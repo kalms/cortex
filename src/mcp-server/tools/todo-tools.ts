@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { captureOrigin } from "../../git/origin.js";
 import { TodoService } from "../../todos/service.js";
 import { TodosRepository } from "../../todos/repository.js";
 import { TodoLinksRepository } from "../../todos/links-repository.js";
@@ -8,6 +9,7 @@ import { validatePrimitiveFields } from "./decision-input-validation.js";
 import { registerTool, type RepoContext, type RepoContextResolver } from "../repo-context.js";
 import type { EventBus } from "../../events/bus.js";
 import { RepoPathField } from "./shared-fields.js";
+import { hashGovernedSource, type GovernedRef } from "../../decisions/reconciliation.js";
 
 const todoShape = {
   repo_path: RepoPathField,
@@ -32,23 +34,61 @@ const todoShape = {
   to: z.enum(["open", "in_progress", "blocked", "done", "cancelled"]).optional(),
   reason: z.string().optional(),
   resolved_by: z.array(z.string()).optional(),
+  // propose
+  thread: z.string().optional().describe(
+    "propose: caller-supplied thread/session id for origin provenance. " +
+    "list/search: exact match filter on origin_thread (never matches a NULL-origin row)",
+  ),
+  // list / search
+  branch: z.string().min(1).optional()
+    .describe("list/search: exact match filter on origin_branch (never matches a NULL-origin row)"),
 } as const;
 
 const todoSchema = z.object(todoShape);
 type TodoArgs = z.infer<typeof todoSchema>;
 
-const todoServiceFor = (ctx: RepoContext, projectId: string | null, bus?: EventBus): TodoService =>
-  new TodoService({
-    db: ctx.decisionsDb,
-    todos: new TodosRepository(ctx.decisionsDb),
-    links: new TodoLinksRepository(ctx.decisionsDb),
-    bus,
-    project_id: projectId ?? "",
-  });
+interface TodoServiceBundle {
+  service: TodoService;
+  todos: TodosRepository;
+  links: TodoLinksRepository;
+}
+
+const todoServiceFor = (ctx: RepoContext, projectId: string | null, bus?: EventBus): TodoServiceBundle => {
+  const todos = new TodosRepository(ctx.decisionsDb);
+  const links = new TodoLinksRepository(ctx.decisionsDb);
+  const service = new TodoService({ db: ctx.decisionsDb, todos, links, bus, project_id: projectId ?? "" });
+  return { service, todos, links };
+};
 
 function need<T>(v: T | undefined, action: string, field: string): T {
   if (v === undefined) throw new Error(`todo(${action}) requires '${field}'`);
   return v;
+}
+
+/** GOVERNS-only refs for a todo, in the shape hashGovernedSource expects.
+ *  Mirrors governedRefs() in reconciliation-attach.ts (the decision-side
+ *  equivalent), but reads from the todo links table. */
+function governedTodoRefs(links: TodoLinksRepository, todoId: string): GovernedRef[] {
+  return links.findByTodo(todoId)
+    .filter((l) => l.relation === "GOVERNS")
+    .map((l) => ({ target_kind: l.target_kind, target_ref: l.target_ref }));
+}
+
+/** Re-stamp a todo's `basis_hash` after its GOVERNS set changed. Todo-side
+ *  mirror of restampBasis() in reconciliation-attach.ts — same rules: call it
+ *  ONLY from a path that actually changed the governed set (never
+ *  speculatively, which would fabricate a basis for an untouched row), and
+ *  anchor to ctx.repoPath, the checkout root. Governing nothing stamps null,
+ *  an honest "no basis" rather than a stale digest. */
+function restampTodoBasis(
+  ctx: RepoContext,
+  svc: { todos: TodosRepository; links: TodoLinksRepository },
+  todoId: string,
+): void {
+  const refs = governedTodoRefs(svc.links, todoId);
+  svc.todos.update(todoId, {
+    basis_hash: refs.length > 0 ? hashGovernedSource(ctx.repoPath, refs) : null,
+  });
 }
 
 export const todoHandler = (resolver: RepoContextResolver, indexerProject: string | null = null, bus?: EventBus) =>
@@ -63,64 +103,119 @@ export const todoHandler = (resolver: RepoContextResolver, indexerProject: strin
           `Field '${bad.field}' contains marker '${bad.marker}'. Re-send it as a plain string.`,
         );
       }
+      // `thread` is a SHARED field that `propose` also uses, where an empty
+      // value legitimately reads as absent — so it cannot carry .min(1) at the
+      // schema level without narrowing the authoring surface. Guard it only
+      // where it acts as a FILTER, so the MCP surface matches HTTP (which 400s
+      // on an empty value). `branch` is filter-only and has .min(1) already.
+      if (
+        (args.action === "list" || args.action === "search") &&
+        args.thread !== undefined && args.thread.trim() === ""
+      ) {
+        return errorResponse(
+          "malformed_input",
+          "thread filter cannot be empty — omit it to list/search unfiltered",
+        );
+      }
       const svc = todoServiceFor(ctx, indexerProject, bus);
       try {
         switch (args.action) {
-          case "propose":
-            return ok(
-              JSON.stringify(
-                svc.propose({
-                  summary: need(args.summary, "propose", "summary"),
-                  description: args.description,
-                  proposed_by: args.proposed_by,
-                  governs: args.governs,
-                  spawns_from: args.spawns_from,
-                  blocked_by: args.blocked_by,
-                }),
-                null,
-                2,
-              ),
-            );
+          case "propose": {
+            const created = svc.service.propose({
+              summary: need(args.summary, "propose", "summary"),
+              description: args.description,
+              proposed_by: args.proposed_by,
+              governs: args.governs,
+              spawns_from: args.spawns_from,
+              blocked_by: args.blocked_by,
+              // captureOrigin is called HERE, in the handler, on
+              // ctx.repoPath (the checkout root) — never in the
+              // service, which stays free of git dependencies.
+              origin: captureOrigin(ctx.repoPath, args.thread ?? null),
+            });
+            // basis_hash must be computed AFTER the GOVERNS links written by
+            // propose() above have landed, or governedTodoRefs returns []
+            // and the todo gets the same meaningless digest as one that
+            // governs nothing. ctx.repoPath is the CHECKOUT root (2.0.0
+            // two-axis split) — never the canonical root. See
+            // tests/decisions/basis-anchoring.test.ts.
+            const refs = governedTodoRefs(svc.links, created.id);
+            if (refs.length > 0) {
+              svc.todos.update(created.id, { basis_hash: hashGovernedSource(ctx.repoPath, refs) });
+            }
+            // (see restampTodoBasis below for the later GOVERNS-change paths)
+            return ok(JSON.stringify(created, null, 2));
+          }
           case "get": {
-            const t = svc.getWithRefs(need(args.id, "get", "id"));
+            const t = svc.service.getWithRefs(need(args.id, "get", "id"));
             return t ? ok(JSON.stringify(t, null, 2)) : empty(`todo(get ${args.id})`);
           }
           case "list":
-            return ok(JSON.stringify(svc.list(), null, 2));
+            // branch/thread push straight into the repository WHERE clause
+            // (TodosRepository.list) — list has no FTS step to preserve, so
+            // there's no post-filter needed the way search() requires below.
+            return ok(JSON.stringify(svc.service.list({ branch: args.branch, thread: args.thread }), null, 2));
           case "search": {
-            const r = svc.search(need(args.query, "search", "query"));
+            let r = svc.service.search(need(args.query, "search", "query"));
+            if (args.branch !== undefined || args.thread !== undefined) {
+              // search() maps through rowToTodo, which — like toDecision on
+              // the decisions side — drops the origin_* columns. Look each
+              // hit up in the raw repository to filter on them. NULL-safe by
+              // construction: an unstamped row's origin_branch/origin_thread
+              // is null/undefined, which never === a defined filter string.
+              r = r.filter((t) => {
+                const raw = svc.todos.get(t.id);
+                return (args.branch === undefined || raw?.origin_branch === args.branch)
+                  && (args.thread === undefined || raw?.origin_thread === args.thread);
+              });
+            }
             return r.length ? ok(JSON.stringify(r, null, 2)) : empty(`todo(search ${args.query})`);
           }
-          case "update":
-            return ok(
-              JSON.stringify(
-                svc.update(need(args.id, "update", "id"), {
-                  summary: args.summary,
-                  description: args.description,
-                  assignee: args.assignee,
-                  governs: args.governs,
-                }),
-                null,
-                2,
-              ),
-            );
-          case "link":
-            svc.link({
-              todo_id: need(args.id, "link", "id"),
-              target: need(args.target, "link", "target"),
-              relation: need(args.relation, "link", "relation"),
+          case "update": {
+            const updated = svc.service.update(need(args.id, "update", "id"), {
+              summary: args.summary,
+              description: args.description,
+              assignee: args.assignee,
+              governs: args.governs,
+              // captureOrigin is called HERE, in the handler, on
+              // ctx.repoPath (the checkout root) — never in the
+              // service. Rewrites last_touched_* only.
+              origin: captureOrigin(ctx.repoPath),
             });
+            // A governs replacement changes what the todo governs, so the
+            // basis must follow it. Only when `governs` was supplied — a
+            // summary edit must not move the reference point.
+            if (args.governs !== undefined) restampTodoBasis(ctx, svc, updated.id);
+            return ok(JSON.stringify(updated, null, 2));
+          }
+          case "link": {
+            const origin = captureOrigin(ctx.repoPath);
+            const todoId = need(args.id, "link", "id");
+            const relation = need(args.relation, "link", "relation");
+            svc.service.link({
+              todo_id: todoId,
+              target: need(args.target, "link", "target"),
+              relation,
+            }, origin);
+            // Only GOVERNS changes the governed set; the other relations are
+            // bookkeeping between todos and leave the basis meaningless to move.
+            if (relation === "GOVERNS") {
+              const rec = svc.service.get(todoId);
+              if (rec) restampTodoBasis(ctx, svc, rec.id);
+            }
             return ok(
               JSON.stringify({ linked: true, todo_id: args.id, target: args.target, relation: args.relation }),
             );
+          }
           case "transition":
             return ok(
               JSON.stringify(
-                svc.transition(need(args.id, "transition", "id"), {
+                svc.service.transition(need(args.id, "transition", "id"), {
                   to: need(args.to, "transition", "to"),
                   reason: args.reason,
                   resolved_by: args.resolved_by,
                   blocked_by: args.blocked_by,
+                  origin: captureOrigin(ctx.repoPath),
                 }),
                 null,
                 2,

@@ -2,8 +2,9 @@ import { z } from "zod";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { ok, empty, error as errorResponse } from "../response.js";
+import { captureOrigin } from "../../git/origin.js";
 import { type RepoContext } from "../repo-context.js";
-import { hashGovernedSource, refToFile, type GovernedRef } from "../../decisions/reconciliation.js";
+import { hashGovernedSource, refToFile, resolveGovernedRefs, type GovernedRef } from "../../decisions/reconciliation.js";
 import { governedRefs } from "../reconciliation-attach.js";
 import { serviceForCtx } from "./decision-tools.js";
 import { RepoPathField } from "./shared-fields.js";
@@ -61,8 +62,26 @@ export async function recordReconciliationAction(
       `Decision ${canonicalId} has no GOVERNS links — it is declarative (process-level) and cannot be reconciled against code.`,
     );
   }
+  if (args.verdict === "match") {
+    const unresolved = resolveGovernedRefs(ctx.repoPath, refs).filter((r) => r.state !== "resolved");
+    if (unresolved.length > 0) {
+      // A `match` here would freeze the <missing> sentinel into the stored hash:
+      // the row would compare equal forever and go permanently quiet, even
+      // though it governs code that does not exist. `partial` and `drift` stay open.
+      return errorResponse(
+        "not_reconcilable",
+        `Cannot record 'match': ${unresolved.length} governed ref(s) do not resolve — ` +
+          unresolved.map((r) => `${r.ref.target_ref} (${r.state})`).join(", ") +
+          `. Use 'partial' or 'drift', or correct the decision's governs list.`,
+      );
+    }
+  }
   const hash = hashGovernedSource(ctx.repoPath, refs);
   const nowIso = new Date().toISOString();
+  // captureOrigin is called HERE, in the handler, on ctx.repoPath (the
+  // checkout root) — never in the repository, which stays free of git
+  // dependencies (same rule Task 3 established for the service layer).
+  const origin = captureOrigin(ctx.repoPath);
   ctx.decisionsRepo.recordReconciliation(canonicalId, {
     reconciliation_verdict: args.verdict,
     reconciled_at: nowIso,
@@ -70,7 +89,21 @@ export async function recordReconciliationAction(
     reconciled_by: process.env.CORTEX_AGENT_ID ?? "agent",
     nonconformant_nodes: args.nonconformant ? JSON.stringify(args.nonconformant) : null,
     reconciliation_note: args.note ?? null,
+    reconciled_branch: origin.branch,
+    reconciled_commit: origin.commit,
+    last_touched_branch: origin.branch,
+    last_touched_commit: origin.commit,
+    last_touched_thread: origin.thread,
   });
+  // Move the basis ONLY on `match`. That verdict asserts the decision's prose
+  // describes the code as it stands, so the current tree legitimately becomes
+  // the reference point drift is measured from. `partial` and `drift` assert
+  // the opposite — re-stamping there would adopt divergent code as the new
+  // baseline and silently mark the row clean, the same harm the never-backfill
+  // rule prevents. (`hash` is already anchored to ctx.repoPath above.)
+  if (args.verdict === "match") {
+    ctx.decisionsRepo.update(canonicalId, { basis_hash: hash });
+  }
   return ok(JSON.stringify({ decision_id: canonicalId, verdict: args.verdict, reconciled_at: nowIso }, null, 2));
 }
 

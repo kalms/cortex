@@ -164,8 +164,10 @@ in-session edits flip a governed decision stale-pending before any commit.
 When drift is flagged, judge whether the decision's prose still matches the
 code and record `decision({action:"reconcile", decision_id, verdict})` with
 `match`/`partial`/`drift`; `decision({action:"pending"})` lists the backlog.
-Gated behind `CORTEX_RECONCILE=1` (default off). Full flow in
-[docs/mcp-tools.md](docs/mcp-tools.md).
+Reconciliation is always on — the `CORTEX_RECONCILE` flag has been removed. A
+`match` verdict is refused while any governed ref is missing or unresolvable
+(named in the error); use `partial`/`drift` instead, or fix the decision's
+`governs` list. Full flow in [docs/mcp-tools.md](docs/mcp-tools.md).
 
 ## Storage — the one gotcha plus pointers
 

@@ -1,5 +1,6 @@
 import type { Decision } from "./types.js";
 import type { EventBus } from "../events/bus.js";
+import type { OriginFields } from "../git/origin.js";
 import { newUlid } from "../events/ulid.js";
 import { DecisionsRepository } from "./repository.js";
 import { toDecision } from "./map.js";
@@ -25,13 +26,19 @@ export class DecisionPromotion {
     this.projectId = deps.project_id ?? '';
   }
 
-  promote(id: string, tier: "team" | "public"): Decision {
+  promote(id: string, tier: "team" | "public", origin?: OriginFields | null): Decision {
     const rec = this.decisions.get(id);
     if (!rec) throw new Error(`Decision not found: ${id}`);
 
     const fromTier = rec.tier;
     const now = new Date().toISOString();
-    this.decisions.update(id, { tier, updated_at: now });
+    this.decisions.update(id, {
+      tier,
+      updated_at: now,
+      last_touched_branch: origin?.branch ?? null,
+      last_touched_commit: origin?.commit ?? null,
+      last_touched_thread: origin?.thread ?? null,
+    });
     const updated = this.decisions.get(id);
     if (!updated) throw new Error(`Decision disappeared after promote: ${id}`);
 

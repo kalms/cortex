@@ -79,11 +79,17 @@ const decisionShape = {
   pr_number: z.number().int().optional(),
   author: z.string().optional(),
   provenance: ProvenanceSchema.optional(),
+  thread: z.string().optional().describe(
+    "create/propose: caller-supplied thread/session id for origin provenance. " +
+    "search: exact match filter on origin_thread (never matches a NULL-origin row)",
+  ),
   // search
   query: z.string().optional(),
   scope: z.string().optional(),
   cross_repo: z.boolean().optional()
     .describe("search: fan out over every registered repo; results grouped per repo"),
+  branch: z.string().min(1).optional()
+    .describe("search: exact match filter on origin_branch (never matches a NULL-origin row)"),
   // why
   qualified_name: z.string().optional(),
   // candidates

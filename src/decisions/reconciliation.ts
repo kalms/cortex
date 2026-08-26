@@ -10,11 +10,6 @@ export interface GovernedRef {
   target_ref: string;
 }
 
-/** True only when reconciliation is explicitly enabled. Default off (v1). */
-export function RECONCILE_ENABLED(): boolean {
-  return process.env.CORTEX_RECONCILE === "1";
-}
-
 /** Reject absolute paths and any '..' segment so a governed ref can never
  *  escape the repo root when joined to it. Backslashes are treated as
  *  separators too, for safety on mixed inputs. */
@@ -77,6 +72,31 @@ function hashDir(h: ReturnType<typeof createHash>, root: string, dir: string): v
     if (st.isDirectory()) hashDir(h, root, p);
     else { h.update(relative(root, p)); h.update("\0"); h.update(readFileSync(p)); }
   }
+}
+
+/** Whether one governed ref points at something that exists right now. */
+export type RefResolution = "resolved" | "missing" | "unresolvable";
+
+export interface ResolvedRef {
+  ref: GovernedRef;
+  state: RefResolution;
+  /** Repo-relative path when one could be derived, else null. */
+  path: string | null;
+}
+
+/**
+ * Per-ref resolution state — the information `hashGovernedSource` computes and
+ * discards. It folds each ref into a `<missing>`/`<unresolved>` sentinel and
+ * returns one opaque digest; callers that need to explain a verdict need to
+ * know WHICH refs failed. Same traversal, same `refToFile`, no hashing.
+ */
+export function resolveGovernedRefs(repoPath: string, refs: GovernedRef[]): ResolvedRef[] {
+  return refs.map((ref) => {
+    const rel = refToFile(ref);
+    if (rel == null) return { ref, state: "unresolvable" as const, path: null };
+    const abs = isAbsolute(rel) ? rel : join(repoPath, rel);
+    return { ref, state: existsSync(abs) ? ("resolved" as const) : ("missing" as const), path: rel };
+  });
 }
 
 /**

@@ -167,6 +167,28 @@ describe("decision search cross_repo mode", () => {
     expect(res.content[0].text).toMatch(/^ERROR reason=malformed_input/);
   });
 
+  // Before this was rejected, cross_repo returned a full, plausible,
+  // UNFILTERED result set — indistinguishable from a successful filtered
+  // query, which is worse than the other no-op filter shapes on this branch
+  // (they at least end at "no rows"). An origin branch names a checkout of one
+  // repo, so it cannot mean anything across repos: fail closed instead.
+  it("branch combined with cross_repo is malformed_input", async () => {
+    const res = await call({
+      action: "search", repo_path: repoA, query: "storage", cross_repo: true, branch: "feature/x",
+    });
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toMatch(/^ERROR reason=malformed_input/);
+    expect(res.content[0].text).toContain("branch");
+  });
+
+  it("thread combined with cross_repo is malformed_input", async () => {
+    const res = await call({
+      action: "search", repo_path: repoA, query: "storage", cross_repo: true, thread: "t-1",
+    });
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toMatch(/^ERROR reason=malformed_input/);
+  });
+
   it("cross_repo with zero hits but skipped repos returns the partial-answer payload", async () => {
     // A ghost registry row means the answer is PARTIAL — the caller must see
     // `skipped`, not a clean "No results" that implies full coverage.

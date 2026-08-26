@@ -68,6 +68,13 @@ export function buildAdaptedTodo(
     relatedTo,
     spawnsFrom,
     resolvedBy,
+    originBranch: rec.origin_branch ?? null,
+    originCommit: rec.origin_commit ?? null,
+    originThread: rec.origin_thread ?? null,
+    lastTouchedBranch: rec.last_touched_branch ?? null,
+    lastTouchedCommit: rec.last_touched_commit ?? null,
+    lastTouchedThread: rec.last_touched_thread ?? null,
+    basisHash: rec.basis_hash ?? null,
   };
 }
 

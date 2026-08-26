@@ -44,6 +44,42 @@
             "stepCount": {
               "type": "number"
             },
+            "originBranch": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "originCommit": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "originThread": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "lastTouchedBranch": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "lastTouchedCommit": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "lastTouchedThread": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "steps": {
               "type": "array",
               "items": {

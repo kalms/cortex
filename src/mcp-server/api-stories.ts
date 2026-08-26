@@ -22,6 +22,12 @@ export function buildAdaptedStory(rec: StoryRecord, stepCount: number): AdaptedS
     createdAt: rec.created_at,
     updatedAt: rec.updated_at,
     stepCount,
+    originBranch: rec.origin_branch ?? null,
+    originCommit: rec.origin_commit ?? null,
+    originThread: rec.origin_thread ?? null,
+    lastTouchedBranch: rec.last_touched_branch ?? null,
+    lastTouchedCommit: rec.last_touched_commit ?? null,
+    lastTouchedThread: rec.last_touched_thread ?? null,
   };
 }
 

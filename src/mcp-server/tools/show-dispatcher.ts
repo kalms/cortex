@@ -5,6 +5,7 @@ import { ok, empty, error as errorResponse } from "../response.js";
 import { RepoPathField } from "./shared-fields.js";
 import { postToViewer, discoverViewerPort } from "./viewer-post.js";
 import { StoryService } from "../../stories/service.js";
+import { captureOrigin } from "../../git/origin.js";
 
 // ---------------------------------------------------------------------------
 // The consolidated `show` MCP tool.
@@ -57,6 +58,8 @@ const showShape = {
   // advance / get / close / delete
   story_id: z.string().min(1).max(200).optional(),
   step: z.number().int().min(1).max(9999).optional(),
+  // story
+  thread: z.string().optional().describe("story: caller-supplied thread/session id for origin provenance"),
 } as const;
 
 const showSchema = z.object(showShape);
@@ -110,6 +113,10 @@ export async function showAction(ctx: RepoContext, args: ShowArgs) {
           steps: need(args.steps, "story", "steps"),
           links: args.links,
           closed: args.closed,
+          // captureOrigin is called HERE, in the handler, on ctx.repoPath
+          // (the checkout root) — never in the service, which stays free
+          // of git dependencies.
+          origin: captureOrigin(ctx.repoPath, args.thread ?? null),
         });
         const port = (await discoverViewerPort()) ?? process.env.CORTEX_VIEWER_PORT ?? "3333";
         return ok(
@@ -153,7 +160,10 @@ export async function showAction(ctx: RepoContext, args: ShowArgs) {
       case "close": {
         const svc = new StoryService({ db: ctx.decisionsDb });
         const storyId = need(args.story_id, "close", "story_id");
-        return ok(JSON.stringify(svc.close(storyId)));
+        // captureOrigin is called HERE, in the handler, on ctx.repoPath (the
+        // checkout root) — never in the service. Closing a story rewrites
+        // last_touched_* only; origin is immutable.
+        return ok(JSON.stringify(svc.close(storyId, captureOrigin(ctx.repoPath))));
       }
       case "delete": {
         const svc = new StoryService({ db: ctx.decisionsDb });
