@@ -19,7 +19,7 @@ import { frameCandidates } from "../../decisions/seed/frame-candidates.js";
 import { type RepoContext, type RepoContextResolver, deriveProjectName } from "../repo-context.js";
 import { freshnessForContext, attachFreshness } from "../freshness.js";
 import type { EventBus } from "../../events/bus.js";
-import { attachDecisionReconciliation, decisionDisplayState, governedRefs } from "../reconciliation-attach.js";
+import { attachDecisionReconciliation, decisionDisplayState, governedRefs, restampBasis } from "../reconciliation-attach.js";
 import { hashGovernedSource } from "../../decisions/reconciliation.js";
 import { RepoPathField, AlternativeSchema, ProvenanceSchema } from "./shared-fields.js";
 import { execAction } from "./exec-action.js";
@@ -291,6 +291,11 @@ export async function updateDecisionAction(
     // dependencies. Rewrites last_touched_* only — origin is immutable.
     const origin = captureOrigin(ctx.repoPath);
     const decision = serviceForCtx(ctx, bus, indexerProject).update(id, { ...updates, origin });
+    // A governs replacement changes what the decision governs, so its basis
+    // must be recomputed — otherwise the row keeps a digest over the OLD ref
+    // set. Only when `governs` was actually supplied: re-stamping on an
+    // unrelated edit (a title fix) would move the reference point for free.
+    if (updates.governs !== undefined) restampBasis(ctx, decision.id);
     return ok(JSON.stringify(decision, null, 2));
   });
 }
@@ -616,6 +621,12 @@ export async function linkDecisionAction(
     else if (rel === "REFERENCES") scopedService.linkReference(decision_id, target, origin);
     else if (rel === "RELATED_TO") scopedService.linkRelatedTo(decision_id, target, origin);
     else if (rel === "DEPENDS_ON") scopedService.linkDependsOn(decision_id, target, origin);
+    // Only a GOVERNS link changes the governed set. The other three relations
+    // are bookkeeping between decisions and leave the basis meaningless-to-move.
+    if (rel === "GOVERNS") {
+      const canonicalId = scopedService.resolveId(decision_id);
+      if (canonicalId) restampBasis(ctx, canonicalId);
+    }
     return ok(JSON.stringify({ linked: true, decision_id, target, relation: rel }));
   });
 }

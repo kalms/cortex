@@ -11,6 +11,33 @@ export function governedRefs(ctx: RepoContext, id: string): GovernedRef[] {
 }
 
 /**
+ * Re-stamp a decision's `basis_hash` after its GOVERNS set changed.
+ *
+ * The basis is the reference point drift is measured against, so it must
+ * describe the refs the decision governs NOW. Stamping only at create left two
+ * wrong states: a decision that GAINED governance via `link` stayed null
+ * forever, and one whose governs list was REPLACED kept a digest over refs it
+ * no longer had.
+ *
+ * Call this ONLY from a path that actually changed the governed set — never
+ * speculatively over existing rows. A basis manufactured for a row nobody
+ * touched silently certifies it as clean, which is exactly what the
+ * never-backfill rule exists to prevent.
+ *
+ * `ctx.repoPath` is the CHECKOUT root (2.0.0 two-axis split), never the
+ * canonical root: a canonical anchor compares against a tree that never moves,
+ * so every row would read clean forever.
+ */
+export function restampBasis(ctx: RepoContext, canonicalId: string): void {
+  const refs = governedRefs(ctx, canonicalId);
+  ctx.decisionsRepo.update(canonicalId, {
+    // Governing nothing is a real state, not a missing one — a decision whose
+    // last GOVERNS link was removed has no basis, and null says so honestly.
+    basis_hash: refs.length > 0 ? hashGovernedSource(ctx.repoPath, refs) : null,
+  });
+}
+
+/**
  * For each ACTIVE decision in `decisions`, decide whether its cached verdict is
  * stale-pending (current governed hash != reconciled_source_hash, or never
  * judged with GOVERNS links present). When ≥1 is stale-pending, append a

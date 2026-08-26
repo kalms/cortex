@@ -74,6 +74,23 @@ function governedTodoRefs(links: TodoLinksRepository, todoId: string): GovernedR
     .map((l) => ({ target_kind: l.target_kind, target_ref: l.target_ref }));
 }
 
+/** Re-stamp a todo's `basis_hash` after its GOVERNS set changed. Todo-side
+ *  mirror of restampBasis() in reconciliation-attach.ts — same rules: call it
+ *  ONLY from a path that actually changed the governed set (never
+ *  speculatively, which would fabricate a basis for an untouched row), and
+ *  anchor to ctx.repoPath, the checkout root. Governing nothing stamps null,
+ *  an honest "no basis" rather than a stale digest. */
+function restampTodoBasis(
+  ctx: RepoContext,
+  svc: { todos: TodosRepository; links: TodoLinksRepository },
+  todoId: string,
+): void {
+  const refs = governedTodoRefs(svc.links, todoId);
+  svc.todos.update(todoId, {
+    basis_hash: refs.length > 0 ? hashGovernedSource(ctx.repoPath, refs) : null,
+  });
+}
+
 export const todoHandler = (resolver: RepoContextResolver, indexerProject: string | null = null, bus?: EventBus) =>
   registerTool(
     "todo",
@@ -112,6 +129,7 @@ export const todoHandler = (resolver: RepoContextResolver, indexerProject: strin
             if (refs.length > 0) {
               svc.todos.update(created.id, { basis_hash: hashGovernedSource(ctx.repoPath, refs) });
             }
+            // (see restampTodoBasis below for the later GOVERNS-change paths)
             return ok(JSON.stringify(created, null, 2));
           }
           case "get": {
@@ -139,30 +157,38 @@ export const todoHandler = (resolver: RepoContextResolver, indexerProject: strin
             }
             return r.length ? ok(JSON.stringify(r, null, 2)) : empty(`todo(search ${args.query})`);
           }
-          case "update":
-            return ok(
-              JSON.stringify(
-                svc.service.update(need(args.id, "update", "id"), {
-                  summary: args.summary,
-                  description: args.description,
-                  assignee: args.assignee,
-                  governs: args.governs,
-                  // captureOrigin is called HERE, in the handler, on
-                  // ctx.repoPath (the checkout root) — never in the
-                  // service. Rewrites last_touched_* only.
-                  origin: captureOrigin(ctx.repoPath),
-                }),
-                null,
-                2,
-              ),
-            );
+          case "update": {
+            const updated = svc.service.update(need(args.id, "update", "id"), {
+              summary: args.summary,
+              description: args.description,
+              assignee: args.assignee,
+              governs: args.governs,
+              // captureOrigin is called HERE, in the handler, on
+              // ctx.repoPath (the checkout root) — never in the
+              // service. Rewrites last_touched_* only.
+              origin: captureOrigin(ctx.repoPath),
+            });
+            // A governs replacement changes what the todo governs, so the
+            // basis must follow it. Only when `governs` was supplied — a
+            // summary edit must not move the reference point.
+            if (args.governs !== undefined) restampTodoBasis(ctx, svc, updated.id);
+            return ok(JSON.stringify(updated, null, 2));
+          }
           case "link": {
             const origin = captureOrigin(ctx.repoPath);
+            const todoId = need(args.id, "link", "id");
+            const relation = need(args.relation, "link", "relation");
             svc.service.link({
-              todo_id: need(args.id, "link", "id"),
+              todo_id: todoId,
               target: need(args.target, "link", "target"),
-              relation: need(args.relation, "link", "relation"),
+              relation,
             }, origin);
+            // Only GOVERNS changes the governed set; the other relations are
+            // bookkeeping between todos and leave the basis meaningless to move.
+            if (relation === "GOVERNS") {
+              const rec = svc.service.get(todoId);
+              if (rec) restampTodoBasis(ctx, svc, rec.id);
+            }
             return ok(
               JSON.stringify({ linked: true, todo_id: args.id, target: args.target, relation: args.relation }),
             );

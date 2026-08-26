@@ -2,6 +2,8 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHarness, callTool, type HarnessContext } from "./harness.js";
+import { openDecisionsDb } from "../../src/decisions/db.js";
+import { resolveDecisionsDbPath } from "../../src/db/resolve-path.js";
 
 describe("record_reconciliation", () => {
   let h: HarnessContext;
@@ -109,6 +111,45 @@ describe("record_reconciliation", () => {
     // 4. re-judge match against the current content → active
     await callTool(h, "decision", { action: "reconcile", decision_id: id, verdict: "match" });
     expect((await parse(id)).display_state).toBe("active");
+  });
+
+  it("moves basis_hash on a match verdict but not on drift", async () => {
+    const mk = async (title: string) => {
+      const c = await callTool(h, "decision", {
+        action: "create", title, description: "d", rationale: "r", governs: ["x.ts"],
+      });
+      return JSON.parse(c.content[0].text as string).id as string;
+    };
+    const basisOf = (id: string): string | null => {
+      const db = openDecisionsDb(resolveDecisionsDbPath(h.repoPath));
+      try {
+        return (db.prepare("SELECT basis_hash FROM decisions WHERE id=?").get(id) as
+          { basis_hash: string | null }).basis_hash;
+      } finally { db.close(); }
+    };
+
+    // The tree MUST change between create and reconcile, or both assertions
+    // pass on the digest already stamped at create and prove nothing.
+    writeFileSync(join(h.repoPath, "x.ts"), "export const v = 1;\n");
+
+    // drift asserts the code has moved AWAY from the decision — adopting the
+    // current tree as the new baseline would silently mark the row clean.
+    const drifted = await mk("verdict drift leaves basis alone");
+    const beforeDrift = basisOf(drifted);
+    expect(beforeDrift).toMatch(/^[0-9a-f]{64}$/);
+    writeFileSync(join(h.repoPath, "x.ts"), "export const v = 2;\n");
+    await callTool(h, "decision", { action: "reconcile", decision_id: drifted, verdict: "drift" });
+    expect(basisOf(drifted)).toBe(beforeDrift);
+
+    // match asserts the prose describes the code as it stands, so the current
+    // tree legitimately becomes the reference point.
+    const matched = await mk("verdict match moves basis");
+    const beforeMatch = basisOf(matched);
+    writeFileSync(join(h.repoPath, "x.ts"), "export const v = 3;\n");
+    await callTool(h, "decision", { action: "reconcile", decision_id: matched, verdict: "match" });
+    const afterMatch = basisOf(matched);
+    expect(afterMatch).toMatch(/^[0-9a-f]{64}$/);
+    expect(afterMatch).not.toBe(beforeMatch);
   });
 
   it("refuses a match verdict while a governed ref is unresolved", async () => {

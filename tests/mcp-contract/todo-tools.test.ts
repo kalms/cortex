@@ -19,6 +19,31 @@ describe("todo provenance is visible on MCP reads", () => {
   beforeAll(async () => { h = await createHarness(); });
   afterAll(async () => { await h.close(); });
 
+  it("stamps basis_hash when a GOVERNS link is added to a todo later", async () => {
+    const repo = makeCommittedRepoFixture();
+    try {
+      const proposed = await callTool(h, "todo", {
+        repo_path: repo, action: "propose", summary: "gains governance later",
+      });
+      const id = JSON.parse(proposed.content[0].text).id as string;
+      const basisOf = (): string | null => {
+        const db = openDecisionsDb(resolveDecisionsDbPath(repo));
+        try {
+          return (db.prepare("SELECT basis_hash FROM todos WHERE id=?").get(id) as
+            { basis_hash: string | null }).basis_hash;
+        } finally { db.close(); }
+      };
+      expect(basisOf()).toBeNull();
+
+      await callTool(h, "todo", {
+        repo_path: repo, action: "link", id, target: "committed.ts", relation: "GOVERNS",
+      });
+      expect(basisOf()).toMatch(/^[0-9a-f]{64}$/);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
   // Committed fixture deliberately: on a commit-less repo a real value and
   // NULL are indistinguishable, so this would pass against a deleted mapper.
   it("returns the real origin branch from todo get and list", async () => {

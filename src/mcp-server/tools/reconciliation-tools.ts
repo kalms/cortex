@@ -95,6 +95,15 @@ export async function recordReconciliationAction(
     last_touched_commit: origin.commit,
     last_touched_thread: origin.thread,
   });
+  // Move the basis ONLY on `match`. That verdict asserts the decision's prose
+  // describes the code as it stands, so the current tree legitimately becomes
+  // the reference point drift is measured from. `partial` and `drift` assert
+  // the opposite — re-stamping there would adopt divergent code as the new
+  // baseline and silently mark the row clean, the same harm the never-backfill
+  // rule prevents. (`hash` is already anchored to ctx.repoPath above.)
+  if (args.verdict === "match") {
+    ctx.decisionsRepo.update(canonicalId, { basis_hash: hash });
+  }
   return ok(JSON.stringify({ decision_id: canonicalId, verdict: args.verdict, reconciled_at: nowIso }, null, 2));
 }
 

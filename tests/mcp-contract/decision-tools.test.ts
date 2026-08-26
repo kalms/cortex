@@ -780,6 +780,63 @@ describe("decision-tools contract", () => {
     });
   });
 
+  describe("basis_hash tracks the GOVERNS set", () => {
+    const basisOf = (repo: string, id: string): string | null => {
+      const db = openDecisionsDb(resolveDecisionsDbPath(repo));
+      try {
+        return (db.prepare("SELECT basis_hash FROM decisions WHERE id=?").get(id) as
+          { basis_hash: string | null }).basis_hash;
+      } finally { db.close(); }
+    };
+
+    // A decision that GAINS governance via link kept basis_hash NULL forever:
+    // it was only ever stamped at create, when it governed nothing.
+    it("stamps basis_hash when a GOVERNS link is added later", async () => {
+      const repo = makeCommittedRepoFixture();
+      try {
+        const created = await callTool(h, "decision", {
+          repo_path: repo, action: "create", title: "ungoverned at birth",
+          description: "d", rationale: "r",
+        });
+        const id = JSON.parse(created.content[0].text as string).id as string;
+        expect(basisOf(repo, id)).toBeNull();
+
+        await callTool(h, "decision", {
+          repo_path: repo, action: "link", decision_id: id,
+          target: "committed.ts", relation: "GOVERNS",
+        });
+        expect(basisOf(repo, id)).toMatch(/^[0-9a-f]{64}$/);
+      } finally {
+        rmSync(repo, { recursive: true, force: true });
+      }
+    });
+
+    // Replacing the governs list left the OLD set's digest in place — a hash
+    // over refs the decision no longer has. Actively wrong, not merely absent.
+    it("recomputes basis_hash when the governs list is replaced", async () => {
+      const repo = makeCommittedRepoFixture();
+      try {
+        writeFileSync(join(repo, "other.ts"), "export const y = 2;\n");
+        const created = await callTool(h, "decision", {
+          repo_path: repo, action: "create", title: "governs will change",
+          description: "d", rationale: "r", governs: ["committed.ts"],
+        });
+        const id = JSON.parse(created.content[0].text as string).id as string;
+        const before = basisOf(repo, id);
+        expect(before).toMatch(/^[0-9a-f]{64}$/);
+
+        await callTool(h, "decision", {
+          repo_path: repo, action: "update", id, governs: ["other.ts"],
+        });
+        const after = basisOf(repo, id);
+        expect(after).toMatch(/^[0-9a-f]{64}$/);
+        expect(after).not.toBe(before);
+      } finally {
+        rmSync(repo, { recursive: true, force: true });
+      }
+    });
+  });
+
   describe("provenance is visible on MCP reads", () => {
     // Filters landed before the fields were readable, so an agent could filter
     // by branch but never SEE any row's branch — no way to discover a valid
