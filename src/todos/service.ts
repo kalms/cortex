@@ -205,7 +205,11 @@ export class TodoService {
   }
 
   search(query: string): Todo[] { return this.todos.search(query).map(rowToTodo); }
-  list(): Todo[] { return this.todos.list().map(rowToTodo); }
+  /** `filter.branch`/`filter.thread` are forwarded verbatim to
+   *  TodosRepository.list(), whose SQL WHERE clause already implements the
+   *  NULL-never-matches semantics — see the comment there. Omitted entirely
+   *  (the default), behavior is unchanged from before provenance filtering. */
+  list(filter?: { branch?: string; thread?: string }): Todo[] { return this.todos.list(filter).map(rowToTodo); }
 
   link(input: LinkTodoInput, origin?: OriginFields | null): void {
     if (!this.resolveRecord(input.todo_id)) throw new Error(`Todo not found: ${input.todo_id}`);

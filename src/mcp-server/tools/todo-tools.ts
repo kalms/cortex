@@ -35,7 +35,13 @@ const todoShape = {
   reason: z.string().optional(),
   resolved_by: z.array(z.string()).optional(),
   // propose
-  thread: z.string().optional().describe("Caller-supplied thread/session id for origin provenance"),
+  thread: z.string().optional().describe(
+    "propose: caller-supplied thread/session id for origin provenance. " +
+    "list/search: exact match filter on origin_thread (never matches a NULL-origin row)",
+  ),
+  // list / search
+  branch: z.string().min(1).optional()
+    .describe("list/search: exact match filter on origin_branch (never matches a NULL-origin row)"),
 } as const;
 
 const todoSchema = z.object(todoShape);
@@ -113,9 +119,24 @@ export const todoHandler = (resolver: RepoContextResolver, indexerProject: strin
             return t ? ok(JSON.stringify(t, null, 2)) : empty(`todo(get ${args.id})`);
           }
           case "list":
-            return ok(JSON.stringify(svc.service.list(), null, 2));
+            // branch/thread push straight into the repository WHERE clause
+            // (TodosRepository.list) — list has no FTS step to preserve, so
+            // there's no post-filter needed the way search() requires below.
+            return ok(JSON.stringify(svc.service.list({ branch: args.branch, thread: args.thread }), null, 2));
           case "search": {
-            const r = svc.service.search(need(args.query, "search", "query"));
+            let r = svc.service.search(need(args.query, "search", "query"));
+            if (args.branch !== undefined || args.thread !== undefined) {
+              // search() maps through rowToTodo, which — like toDecision on
+              // the decisions side — drops the origin_* columns. Look each
+              // hit up in the raw repository to filter on them. NULL-safe by
+              // construction: an unstamped row's origin_branch/origin_thread
+              // is null/undefined, which never === a defined filter string.
+              r = r.filter((t) => {
+                const raw = svc.todos.get(t.id);
+                return (args.branch === undefined || raw?.origin_branch === args.branch)
+                  && (args.thread === undefined || raw?.origin_thread === args.thread);
+              });
+            }
             return r.length ? ok(JSON.stringify(r, null, 2)) : empty(`todo(search ${args.query})`);
           }
           case "update":

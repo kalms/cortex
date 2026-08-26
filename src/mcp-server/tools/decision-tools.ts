@@ -66,6 +66,10 @@ const searchDecisionsShape = {
   scope: z.string().optional().describe("Qualified name or file path to scope results"),
   cross_repo: z.boolean().optional()
     .describe("Fan out over every registered repo; results grouped per repo"),
+  branch: z.string().min(1).optional()
+    .describe("Exact match filter on origin_branch (never matches a NULL-origin row)"),
+  thread: z.string().min(1).optional()
+    .describe("Exact match filter on origin_thread (never matches a NULL-origin row)"),
 } as const;
 const searchDecisionsSchema = z.object(searchDecisionsShape);
 
@@ -344,7 +348,7 @@ export async function searchDecisionsAction(
   indexerProject?: string | null,
   resolver?: RepoContextResolver,
 ) {
-  const { query, scope } = args;
+  const { query, scope, branch, thread } = args;
   if (args.cross_repo) {
     if (scope) {
       return errorResponse(
@@ -365,6 +369,22 @@ export async function searchDecisionsAction(
       const governing = searchForCtx(ctx).findGoverning(scope);
       const allowed = new Set(governing.map((d) => d.id));
       results = results.filter((d) => allowed.has(d.id));
+    }
+    if (branch !== undefined || thread !== undefined) {
+      // Origin columns live on the raw DecisionRecord, not the mapped
+      // Decision domain shape `search()` returns (see toDecision in map.ts,
+      // which drops them) — look each hit up by id to filter on
+      // origin_branch/origin_thread. `raw?.origin_branch === branch` is
+      // NULL-safe by construction: an unstamped row's origin_branch is
+      // null/undefined, which never === a defined filter string — mirrors
+      // the SQL `NULL = 'x'` semantics DecisionsRepository.list() relies on
+      // (never matches an unstamped row). Applied the same post-filter way
+      // as `scope` above, to avoid touching the FTS query.
+      results = results.filter((d) => {
+        const raw = ctx.decisionsRepo.get(d.id);
+        return (branch === undefined || raw?.origin_branch === branch)
+          && (thread === undefined || raw?.origin_thread === thread);
+      });
     }
     if (results.length === 0) return empty(`search_decisions(${query})`);
     const okResult = ok(JSON.stringify(results, null, 2));
