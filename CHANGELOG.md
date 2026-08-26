@@ -92,6 +92,70 @@ moved since.
   a checkout it never came from.
 - **Adding a link never bumped the owning row's `updated_at`.**
 
+## [2.0.4] — 2026-08-26
+
+### Fixed
+
+- **The SessionStart routing text named the ladder but never the reason its top
+  rung goes unused.** Cortex's MCP tools arrive *deferred* — name only, no
+  parameter schema — so reaching the first rung costs a `ToolSearch` call
+  before the first real call, while the text-search fallback it exists to
+  displace costs none. An agent does not weigh that trade-off and choose
+  wrongly; it follows the cheaper path, and `prefer-cortex` then fires *after*
+  the reach, which is what an operator experiences as an agent fighting its own
+  routing. Advisory prose cannot beat a structural gradient, so the indexed
+  branch now opens with the one call that closes it, paid at session start
+  instead of remembered mid-task. The directive is keyword-form
+  (`ToolSearch(query="+cortex …")`), never an exact-name `select:` — this
+  plugin registers the server as `cortex`, but an embedding host may register
+  it under another name (Mesh injects its bundled sidecar as `mesh-cortex`)
+  and an exact-name select would silently match nothing there. It self-cancels
+  when the schemas are already loaded. This *narrows* the gradient rather than
+  removing it: the directive is still context text competing with harness
+  instructions that point the other way.
+
+## [2.0.3] — 2026-08-25
+
+### Fixed
+
+- **Nothing ever created the Python venv that frame extraction needs, so a
+  bundled sidecar could not produce frames at all.** `cortex install` creates
+  it and `cortex setup frames` creates it — and an embedding host unpacks the
+  tarball and runs neither, so every index returned `{skipped, venv_missing}`
+  forever while a host whose only surface is a viewer drew an empty canvas
+  with nothing anywhere to say why. This is the third defect in the same
+  blank-canvas investigation, after the missing clusterer (2.0.1) and the
+  discarded publish (2.0.2); it outlived both because it fails the same silent
+  way. `ensureVenv` now provisions on demand from `runFrameExtraction`, guarded
+  because it spends minutes and a network: `CORTEX_FRAMES_SETUP=0` opts out, a
+  failure is marked and not retried for 24h (`cortex setup frames` bypasses the
+  marker and clears it), and a lock file stops two concurrent indexes from
+  pip-installing into one venv.
+- **`python3` was resolved from `PATH` alone.** A sidecar spawned by a GUI app
+  inherits that app's environment rather than a login shell's, so the lookup
+  could fail on a machine with a perfectly good interpreter — which would have
+  made the change above a no-op in exactly the case it exists for. Resolution
+  is now `CORTEX_PYTHON`, then `PATH`, then the usual absolute locations, and
+  the resolved interpreter's directory is prepended to the setup script's own
+  `PATH`.
+
+- **A half-built venv read as a working one.** `python3 -m venv` writes
+  `bin/python` before pip installs anything, so a creation that died partway
+  left a venv that existed and could not cluster: `hasVenv()` returned true
+  forever, the on-demand guard was short-circuited, and every index failed with
+  `ModuleNotFoundError` rather than skipping and being retried. `setup-venv.sh`
+  now removes the venv if creation fails (creation only — a failed *upgrade*
+  still leaves a working venv alone), and `hasVenv()` requires
+  `site-packages/numpy` rather than just the interpreter, so a half-venv from
+  any source reads as absent and is rebuilt.
+
+### Changed
+
+- **Frame extraction checks for file nodes before it checks for the venv.**
+  Provisioning one only to discover the repo has nothing to cluster is pure
+  cost, and `no_files` is the honest answer for an empty repo — which it was
+  not while a missing venv could mask it.
+
 ## [2.0.2] — 2026-08-25
 
 ### Fixed
@@ -2182,6 +2246,8 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
 [2.1.0]: https://github.com/ruevu/cortex/releases/tag/v2.1.0
+[2.0.4]: https://github.com/ruevu/cortex/releases/tag/v2.0.4
+[2.0.3]: https://github.com/ruevu/cortex/releases/tag/v2.0.3
 [2.0.2]: https://github.com/ruevu/cortex/releases/tag/v2.0.2
 [2.0.1]: https://github.com/ruevu/cortex/releases/tag/v2.0.1
 [2.0.0]: https://github.com/ruevu/cortex/releases/tag/v2.0.0

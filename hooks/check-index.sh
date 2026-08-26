@@ -199,6 +199,21 @@ EOF
 case "$INDEX_STATE" in
     indexed*)
         cat <<'EOF'
+FIRST — load the Cortex tool schemas, before your first code question.
+If the Cortex tools reach you as bare NAMES in a deferred-tools reminder,
+you cannot call them yet: there is no parameter schema, and the reflex that
+fills that gap is grep. Rung 1 then costs two calls where grep costs one,
+and that gradient — not preference — is what decides the next hour. Spend
+the call now, once:
+
+  ToolSearch(query="+cortex search_graph search_code get_code_snippet trace_path",
+             max_results=6)
+
+Use that keyword form, not select:<exact-name>. This plugin registers the
+server as `cortex`, but an embedding host may register it under another
+name, and an exact-name select matches nothing there. If the full schemas
+are already in your context, skip this — it is a no-op, not a required step.
+
 The repo is indexed by Cortex. For code exploration, prefer these MCP tools
 over grep/Read:
 

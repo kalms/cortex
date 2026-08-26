@@ -11,14 +11,24 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 REQ="$ROOT/requirements.txt"
 VENV="${CORTEX_VENV:-$HOME/.cache/cortex-indexer/python-venv}"
 
-if [ ! -d "$VENV" ]; then
+if [ -d "$VENV" ]; then
+  # Existing venv: upgrade in place. A failure here leaves what was already
+  # working alone.
+  "$VENV/bin/pip" install --quiet --upgrade pip
+  "$VENV/bin/pip" install --quiet -r "$REQ"
+else
   echo "[setup-venv] creating venv at $VENV"
   mkdir -p "$(dirname "$VENV")"
+  # Creation is all-or-nothing. `python3 -m venv` makes bin/python before pip
+  # installs anything, so a run that dies partway would leave a venv that
+  # exists and cannot cluster — worse than none, which at least skips cleanly
+  # and gets retried. set -e means any failure below reaches this trap.
+  trap 'rm -rf "$VENV"' EXIT
   python3 -m venv "$VENV"
+  "$VENV/bin/pip" install --quiet --upgrade pip
+  "$VENV/bin/pip" install --quiet -r "$REQ"
+  trap - EXIT
 fi
-
-"$VENV/bin/pip" install --quiet --upgrade pip
-"$VENV/bin/pip" install --quiet -r "$REQ"
 
 # Print versions so the user can sanity-check. hdbscan doesn't expose
 # __version__; query it via importlib.metadata so the check works across
