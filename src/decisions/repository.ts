@@ -67,22 +67,37 @@ const WRITE_ONCE_KEYS = new Set<string>([
   "id", "seq", "created_at", "provenance", "origin_branch", "origin_commit", "origin_thread",
 ]);
 
-const SELECT_COLS =
-  "id, seq, title, description, rationale, problem, resolution, alternatives, tier, status, superseded_by, author, provenance, created_at, updated_at";
+// Column lists are arrays, not concatenated strings. `search()` needs the same
+// columns table-prefixed for its FTS join; deriving that by splitting a string
+// on ", " makes a stray trailing comma in any fragment a RUNTIME SQL error
+// rather than a compile error. Joining an array cannot fail that way.
+const SELECT_COL_NAMES = [
+  "id", "seq", "title", "description", "rationale", "problem", "resolution",
+  "alternatives", "tier", "status", "superseded_by", "author", "provenance",
+  "created_at", "updated_at",
+];
+const SELECT_COLS = SELECT_COL_NAMES.join(", ");
 
-const RECON_COLS =
-  "reconciliation_verdict, reconciled_at, reconciled_source_hash, reconciled_by, nonconformant_nodes, reconciliation_note";
+const RECON_COL_NAMES = [
+  "reconciliation_verdict", "reconciled_at", "reconciled_source_hash",
+  "reconciled_by", "nonconformant_nodes", "reconciliation_note",
+];
 
 /** Git-identity columns. Projected by every read (`READ_COLS`) — without them
  *  `get`/`list`/`search` hand back records whose provenance is `undefined`,
  *  which every downstream `?? null` silently turns into "no git identity",
  *  indistinguishable from a genuinely unstamped row. */
-const PROVENANCE_COLS =
-  "origin_branch, origin_commit, origin_thread, " +
-  "last_touched_branch, last_touched_commit, last_touched_thread, " +
-  "basis_hash, reconciled_branch, reconciled_commit";
+const PROVENANCE_COL_NAMES = [
+  "origin_branch", "origin_commit", "origin_thread",
+  "last_touched_branch", "last_touched_commit", "last_touched_thread",
+  "basis_hash", "reconciled_branch", "reconciled_commit",
+];
 
-const READ_COLS = `${SELECT_COLS}, ${RECON_COLS}, ${PROVENANCE_COLS}`;
+const READ_COL_NAMES = [...SELECT_COL_NAMES, ...RECON_COL_NAMES, ...PROVENANCE_COL_NAMES];
+const READ_COLS = READ_COL_NAMES.join(", ");
+/** The same read columns, table-qualified for a joined (FTS) query. */
+const readColsAliased = (prefix: string): string =>
+  READ_COL_NAMES.map((c) => `${prefix}${c}`).join(", ");
 
 /**
  * Turn a free-text user query into a safe FTS5 MATCH expression.
@@ -211,7 +226,7 @@ export class DecisionsRepository {
     if (!match) return [];
     return this.db
       .prepare(
-        `SELECT ${READ_COLS.split(", ").map((c) => "d." + c).join(", ")}
+        `SELECT ${readColsAliased("d.")}
          FROM decisions d
          JOIN decisions_fts f ON f.rowid = d.rowid
          WHERE decisions_fts MATCH ?

@@ -19,19 +19,30 @@ const WRITE_ONCE_KEYS = new Set<string>([
   "id", "seq", "created_at", "origin_branch", "origin_commit", "origin_thread",
 ]);
 
-const COLS =
-  "id, seq, summary, description, state, state_reason, proposed_by, proposed_at, started_at, closed_at, assignee, created_at, updated_at";
+// Arrays, not concatenated strings — `search()` needs these table-prefixed for
+// its FTS join, and deriving that by splitting on ", " would turn a stray
+// trailing comma into a RUNTIME SQL error. Mirrors ../decisions/repository.ts.
+const COL_NAMES = [
+  "id", "seq", "summary", "description", "state", "state_reason", "proposed_by",
+  "proposed_at", "started_at", "closed_at", "assignee", "created_at", "updated_at",
+];
+const COLS = COL_NAMES.join(", ");
 
 /** Git-identity columns — projected by every read, never by the INSERT column
- *  list (which spells them out separately). Mirrors `PROVENANCE_COLS` in
+ *  list (which spells them out separately). Mirrors `PROVENANCE_COL_NAMES` in
  *  ../decisions/repository.ts: a read that omits them makes a stamped row
  *  indistinguishable from an unstamped one. No `reconciled_*` — todos are
  *  never reconciled. */
-const PROVENANCE_COLS =
-  "origin_branch, origin_commit, origin_thread, " +
-  "last_touched_branch, last_touched_commit, last_touched_thread, basis_hash";
+const PROVENANCE_COL_NAMES = [
+  "origin_branch", "origin_commit", "origin_thread",
+  "last_touched_branch", "last_touched_commit", "last_touched_thread", "basis_hash",
+];
 
-const READ_COLS = `${COLS}, ${PROVENANCE_COLS}`;
+const READ_COL_NAMES = [...COL_NAMES, ...PROVENANCE_COL_NAMES];
+const READ_COLS = READ_COL_NAMES.join(", ");
+/** The same read columns, table-qualified for a joined (FTS) query. */
+const readColsAliased = (prefix: string): string =>
+  READ_COL_NAMES.map((c) => `${prefix}${c}`).join(", ");
 
 export class TodosRepository {
   constructor(private db: Database.Database) {}
@@ -107,7 +118,7 @@ export class TodosRepository {
     const match = toFtsMatch(query);
     if (!match) return [];
     return this.db.prepare(
-      `SELECT ${READ_COLS.split(", ").map((c) => "t." + c).join(", ")}
+      `SELECT ${readColsAliased("t.")}
        FROM todos t JOIN todos_fts f ON f.rowid = t.rowid
        WHERE todos_fts MATCH ? ORDER BY rank`,
     ).all(match) as TodoRecord[];
