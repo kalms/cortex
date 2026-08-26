@@ -780,6 +780,31 @@ describe("decision-tools contract", () => {
     });
   });
 
+  describe("provenance is visible on MCP reads", () => {
+    // Filters landed before the fields were readable, so an agent could filter
+    // by branch but never SEE any row's branch — no way to discover a valid
+    // filter value. The HTTP adapters were widened; the MCP mappers are a
+    // separate path and were missed.
+    it("returns the real origin branch from decision get", async () => {
+      const repo = makeCommittedRepoFixture();
+      try {
+        const created = await callTool(h, "decision", {
+          repo_path: repo, action: "create", title: "visible provenance",
+          description: "d", rationale: "r",
+        });
+        const id = JSON.parse(created.content[0].text as string).id as string;
+        const realBranch = execSync(`git -C "${repo}" branch --show-current`).toString().trim();
+
+        const got = await callTool(h, "decision", { repo_path: repo, action: "get", id });
+        const body = JSON.parse(got.content[0].text as string);
+        expect(body.origin_branch).toBe(realBranch);
+        expect(body.last_touched_branch).toBe(realBranch);
+      } finally {
+        rmSync(repo, { recursive: true, force: true });
+      }
+    });
+  });
+
   describe("last-touched provenance", () => {
     it("keeps origin immutable across an update", async () => {
       const created = await callTool(h, "decision", {

@@ -40,6 +40,19 @@ export interface Decision {
   problem: string | null;
   resolution: string | null;
   provenance: ProvenanceMeta | null;
+  // Git identity. Surfaced on reads so a caller can SEE which checkout a row
+  // came from — without this the branch/thread filters are unusable, since
+  // there is no way to discover a valid value to filter by. Null on rows
+  // written before provenance existed, and never backfilled.
+  origin_branch: string | null;
+  origin_commit: string | null;
+  origin_thread: string | null;
+  last_touched_branch: string | null;
+  last_touched_commit: string | null;
+  last_touched_thread: string | null;
+  basis_hash: string | null;
+  reconciled_branch: string | null;
+  reconciled_commit: string | null;
 }
 
 /** A ref row on a decision link — the sidecar model surfaces target refs
@@ -167,5 +180,17 @@ export function nodeToDecision(node: NodeRow): Decision {
     problem: data.problem ?? null,
     resolution: data.resolution ?? null,
     provenance: data.provenance ?? null,
+    // The graph-node path predates provenance and carries these only if a
+    // serialised node happens to include them. Null is the honest answer
+    // otherwise — never fabricate one from the current tree.
+    origin_branch: data.origin_branch ?? null,
+    origin_commit: data.origin_commit ?? null,
+    origin_thread: data.origin_thread ?? null,
+    last_touched_branch: data.last_touched_branch ?? null,
+    last_touched_commit: data.last_touched_commit ?? null,
+    last_touched_thread: data.last_touched_thread ?? null,
+    basis_hash: data.basis_hash ?? null,
+    reconciled_branch: data.reconciled_branch ?? null,
+    reconciled_commit: data.reconciled_commit ?? null,
   };
 }

@@ -25,6 +25,17 @@ export interface Todo {
   assignee: string | null;
   created_at: string;
   updated_at: string;
+  // Git identity, surfaced on reads so a caller can see which checkout a todo
+  // came from — the branch/thread filters are unusable otherwise, since there
+  // is no way to discover a valid value. Null on pre-provenance rows, never
+  // backfilled. No reconciled_*: todos are never reconciled.
+  origin_branch: string | null;
+  origin_commit: string | null;
+  origin_thread: string | null;
+  last_touched_branch: string | null;
+  last_touched_commit: string | null;
+  last_touched_thread: string | null;
+  basis_hash: string | null;
 }
 
 /** Row shape as stored/read by TodosRepository (Task 1.3). Kept structurally
@@ -114,5 +125,12 @@ export function rowToTodo(rec: TodoRecord): Todo {
     assignee: rec.assignee ?? null,
     created_at: rec.created_at,
     updated_at: rec.updated_at,
+    origin_branch: rec.origin_branch ?? null,
+    origin_commit: rec.origin_commit ?? null,
+    origin_thread: rec.origin_thread ?? null,
+    last_touched_branch: rec.last_touched_branch ?? null,
+    last_touched_commit: rec.last_touched_commit ?? null,
+    last_touched_thread: rec.last_touched_thread ?? null,
+    basis_hash: rec.basis_hash ?? null,
   };
 }

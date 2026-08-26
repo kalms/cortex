@@ -233,6 +233,36 @@ describe.skipIf(BINARY_MISSING)("show dispatcher contract", () => {
       expect(afterDelete.content[0].text).toMatch(/^No results: /);
     });
 
+    // Reads must expose the git identity, not just store it — otherwise the
+    // branch/thread filters have no discoverable values.
+    it("surfaces the real origin branch on story get and list", async () => {
+      const committedRepo = makeCommittedRepoFixture();
+      try {
+        const create = await dispatch({
+          repo_path: committedRepo,
+          action: "story",
+          title: "Provenance visible on read",
+          steps: [{ caption: "step", refs: [] }],
+        });
+        const id = JSON.parse(create.content[0].text).story_id;
+        const realBranch = execSync(`git -C "${committedRepo}" branch --show-current`).toString().trim();
+
+        const got = JSON.parse((await dispatch({
+          repo_path: committedRepo, action: "get", story_id: id,
+        })).content[0].text);
+        expect(got.origin_branch).toBe(realBranch);
+
+        const listed = JSON.parse((await dispatch({
+          repo_path: committedRepo, action: "list",
+        })).content[0].text);
+        const rows = Array.isArray(listed) ? listed : listed.stories;
+        expect(rows.length).toBeGreaterThan(0);
+        expect(rows.find((s: { id: string }) => s.id === id).origin_branch).toBe(realBranch);
+      } finally {
+        rmSync(committedRepo, { recursive: true, force: true });
+      }
+    });
+
     it("close keeps origin immutable and rewrites last_touched_* to the checkout's real branch/commit", async () => {
       const committedRepo = makeCommittedRepoFixture();
       try {

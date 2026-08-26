@@ -1,7 +1,47 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createHarness, type HarnessContext, callTool } from "./harness.js";
+import { createHarness, type HarnessContext, callTool, makeIndexedRepoFixture } from "./harness.js";
 import { openDecisionsDb } from "../../src/decisions/db.js";
 import { resolveDecisionsDbPath } from "../../src/db/resolve-path.js";
+import { execSync } from "node:child_process";
+import { writeFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
+
+function makeCommittedRepoFixture(): string {
+  const root = makeIndexedRepoFixture();
+  writeFileSync(join(root, "committed.ts"), "export const x = 1;\n");
+  execSync(`git -C "${root}" add .`, { stdio: "ignore" });
+  execSync(`git -C "${root}" commit -q --no-gpg-sign -m seed`, { stdio: "ignore" });
+  return root;
+}
+
+describe("todo provenance is visible on MCP reads", () => {
+  let h: HarnessContext;
+  beforeAll(async () => { h = await createHarness(); });
+  afterAll(async () => { await h.close(); });
+
+  // Committed fixture deliberately: on a commit-less repo a real value and
+  // NULL are indistinguishable, so this would pass against a deleted mapper.
+  it("returns the real origin branch from todo get and list", async () => {
+    const repo = makeCommittedRepoFixture();
+    try {
+      const proposed = await callTool(h, "todo", {
+        repo_path: repo, action: "propose", summary: "visible provenance todo",
+      });
+      const id = JSON.parse(proposed.content[0].text).id as string;
+      const realBranch = execSync(`git -C "${repo}" branch --show-current`).toString().trim();
+
+      const got = JSON.parse((await callTool(h, "todo", { repo_path: repo, action: "get", id })).content[0].text);
+      expect(got.origin_branch).toBe(realBranch);
+
+      const listed = JSON.parse((await callTool(h, "todo", { repo_path: repo, action: "list" })).content[0].text);
+      const rows = Array.isArray(listed) ? listed : listed.todos;
+      expect(rows.length).toBeGreaterThan(0);
+      expect(rows.find((t: { id: string }) => t.id === id).origin_branch).toBe(realBranch);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("todo tool contract — lifecycle", () => {
   let h: HarnessContext;
