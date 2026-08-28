@@ -103,6 +103,9 @@ jobs:
     name: Release consistency
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    # Read-only: this job only reads the tree and git history.
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v6
         with:

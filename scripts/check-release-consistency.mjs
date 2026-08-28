@@ -113,7 +113,12 @@ if (!baseVersion) {
     if (!log.includes(`## [${version}]`))
       problems.push(`CHANGELOG.md has no "## [${version}]" section for this release`)
     else notes.push(`CHANGELOG section for ${version} ✓`)
-    if (!new RegExp(`^\\[${version.replace(/\./g, '\\.')}\\]:\\s`, 'm').test(log))
+    // Plain line scan, not a regex built from `version`: escaping only dots left
+    // every other metacharacter (and backslashes) live in the pattern, which
+    // CodeQL correctly flags as incomplete sanitization. Nothing here needs a
+    // regex at all.
+    const hasLinkRef = log.split('\n').some((line) => line.startsWith(`[${version}]:`))
+    if (!hasLinkRef)
       problems.push(`CHANGELOG.md has no "[${version}]: <url>" link reference at the bottom`)
     else notes.push(`CHANGELOG link reference for ${version} ✓`)
   }
