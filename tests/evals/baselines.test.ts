@@ -7,10 +7,16 @@ function universal(name: string): Assertion {
     fix_id: "universal",
     name,
     description: "",
-    query: { kind: "sql", sql: "" },
+    // The map-valued metric MUST declare kind "language_density": that is what
+    // mergeImprovements discriminates on, rather than sniffing the value's
+    // shape, so a fixture that lies about its query kind would exercise the
+    // wrong branch and prove nothing.
+    query: name === "per_language_function_density"
+      ? { kind: "language_density" }
+      : { kind: "sql", sql: "" },
     baseline_expected: "pass",
     scope: "universal",
-    direction: "lower_is_better",
+    direction: name === "per_language_function_density" ? "higher_is_better" : "lower_is_better",
   };
 }
 
@@ -83,5 +89,23 @@ describe("mergeImprovements", () => {
       res("file_sourced_calls", 0, { status: "pass", observed: 0, baseline: 147, delta: -147, improved: true }),
     ]);
     expect(BASE.per_assertion.file_sourced_calls).toBe(147);
+  });
+
+  it("never adopts an unmeasurable metric, whose observed value is null", () => {
+    // The loudest invariant in the plan: `not_measured` carries observed: null.
+    // Writing that into a baseline seeds a non-comparable entry that every
+    // later run then compares against.
+    const { baseline, adopted } = mergeImprovements(BASE, [
+      res("file_sourced_calls", null, { status: "not_measured", observed: null }),
+    ]);
+    expect(adopted).toEqual([]);
+    expect(baseline.per_assertion.file_sourced_calls).toBe(147);
+  });
+
+  it("skips a result carrying no ratchet outcome at all", () => {
+    const { adopted } = mergeImprovements(BASE, [
+      res("qn_collisions", 1, undefined),
+    ]);
+    expect(adopted).toEqual([]);
   });
 });

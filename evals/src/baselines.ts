@@ -6,6 +6,7 @@ import type { AssertionResult, Baseline, RatchetOutcome } from "./assertions/typ
  *  never be absorbed, or the gate would erase the very failure it exists to
  *  report. Scorecard sections are not ratcheted and are copied verbatim.
  *
+ *  `captured_at` is bumped because the file really was written now, while
  *  `source_sha` is deliberately left alone. After adoption the file is a
  *  per-metric high-water mark rather than a snapshot of one commit, and the
  *  sha still names the last full `--capture-baseline`. */
@@ -21,7 +22,14 @@ export function mergeImprovements(
     if (!outcome) continue;
     const name = r.assertion.name;
 
-    if ("status" in outcome) {
+    // Discriminate on the assertion, not on the shape of the value. Density map
+    // keys are file extensions harvested from arbitrary repos, so a repo holding
+    // a `*.status` file yields an outcome map with a key named "status" — which
+    // a `"status" in outcome` test would read as a scalar outcome. Failing that
+    // way is safe here (the metric is skipped, never mis-adopted), but report.ts
+    // already guards the identical trap, and two files disagreeing about how to
+    // tell a map from a scalar is how the guarded one later gets "simplified".
+    if (r.assertion.query.kind !== "language_density") {
       if (outcome.status === "pass" && outcome.improved) {
         per[name] = outcome.observed;
         adopted.push(name);
@@ -29,11 +37,14 @@ export function mergeImprovements(
       continue;
     }
 
+    // Discriminating on the assertion rather than on `"status" in outcome` costs
+    // the type narrowing that check used to provide, so name the map shape here.
+    const byKey = outcome as Record<string, RatchetOutcome>;
     const current = per[name];
     const merged: Record<string, number> = isMetricMap(current) ? { ...current } : {};
     let touched = false;
-    for (const key of Object.keys(outcome).sort()) {
-      const o: RatchetOutcome = outcome[key]!;
+    for (const key of Object.keys(byKey).sort()) {
+      const o: RatchetOutcome = byKey[key]!;
       if (o.status === "pass" && o.improved) {
         merged[key] = o.observed;
         adopted.push(`${name}.${key}`);
