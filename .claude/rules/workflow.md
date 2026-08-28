@@ -194,14 +194,40 @@ Every merge to `main` that changes **code** MUST bump the semver version
 (`0.3.0` → `0.4.0`, new backward-compatible capability) or **major** (`0.3.0` →
 `1.0.0`, breaking change) release.
 
-Bump all three version fields together so they never drift:
+Bump both version fields together so they never drift:
 
 - [`package.json`](../../package.json)
 - [`plugin.json`](../../plugin.json)
-- [`.claude-plugin/marketplace.json`](../../.claude-plugin/marketplace.json)
 
 (Do **not** touch `CORTEX_INDEXER_VERSION` in `src/indexer/version.ts` — that
 pins the external indexer binary, not the plugin.)
+
+There used to be a third, in `.claude-plugin/marketplace.json`. It is gone: a
+marketplace entry's `version` is optional and resolves from the plugin's own
+`plugin.json`, so the copy bought nothing and could only drift. The published
+`ruevu/plugins` catalog omits it for the same reason, and the in-repo manifest
+is now the *development* marketplace (`cortex-dev`) rather than the published
+one. If a version is ever re-added there, CI requires it to agree.
+
+### This is enforced, not remembered
+
+`.github/workflows/ci.yml` runs
+[`scripts/check-release-consistency.mjs`](../../scripts/check-release-consistency.mjs)
+on every PR, and **"CI gate" fails** when: the version fields disagree; a
+non-docs diff carries no bump; a bumped version is **not strictly ahead of the
+base's**; or a release has no CHANGELOG section and link reference. Run it
+yourself before opening the PR:
+
+```bash
+node scripts/check-release-consistency.mjs main
+```
+
+The prose below is the explanation; the script is the gate. Both of this rule's
+past failures were invisible to prose — 1.1.1–1.2.1 merged untagged (GitHub
+advertised v1.1.0 while `main` was five versions ahead), and a branch was once
+authored at 2.1.1 while 2.2.0 landed on `main` beneath it, leaving it proposing
+a version *behind* its own base. The "not strictly ahead" check exists for the
+second; the tag step below is still the author's to run.
 
 **Also add a [`CHANGELOG.md`](../../CHANGELOG.md) entry** for the new version —
 **every** release deserves one, patches included. Follow the existing

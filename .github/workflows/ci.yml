@@ -93,13 +93,35 @@ jobs:
       - name: Run TypeScript test suite
         run: npm test
 
+  # ── Release consistency (version fields, bump, CHANGELOG) ────────────────
+  # The merge protocol in .claude/rules/workflow.md used to be enforced only by
+  # the author remembering it, and it drifted twice: 1.1.1-1.2.1 merged untagged,
+  # and a branch was once carried at a version BEHIND the main it targeted. This
+  # makes those failures mechanical. PR-only: on a push to main the "base" is the
+  # commit itself, so there is nothing meaningful to compare.
+  release-consistency:
+    name: Release consistency
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+      - name: Check version fields, bump, and CHANGELOG
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: node scripts/check-release-consistency.mjs
+
   # ── Required-check aggregator ────────────────────────────────────────────
   # Always runs (even when the suite is path-skipped) so it can safely be THE
   # required status check. Fails iff the suite that ran failed/was cancelled, or
   # the changes job errored. Mark this job ("CI gate") required in branch rules.
   ci-gate:
     name: CI gate
-    needs: [changes, ts-suite]
+    needs: [changes, ts-suite, release-consistency]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -107,11 +129,16 @@ jobs:
         run: |
           ch="${{ needs.changes.result }}"
           ts="${{ needs.ts-suite.result }}"
-          echo "changes=$ch  ts-suite=$ts"
+          rc="${{ needs.release-consistency.result }}"
+          echo "changes=$ch  ts-suite=$ts  release-consistency=$rc"
           if [ "$ch" != "success" ]; then
             echo "::error::changes job did not succeed ($ch)"; exit 1
           fi
           if [ "$ts" = "failure" ] || [ "$ts" = "cancelled" ]; then
             echo "::error::the TS suite did not pass"; exit 1
+          fi
+          # Skipped is fine (push to main); failed/cancelled is not.
+          if [ "$rc" = "failure" ] || [ "$rc" = "cancelled" ]; then
+            echo "::error::release consistency did not pass"; exit 1
           fi
           echo "OK — the TS suite passed (a path-skipped suite is fine)"

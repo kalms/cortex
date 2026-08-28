@@ -18,6 +18,73 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [2.2.1] — 2026-08-28
+
+### Changed
+
+- **The marketplace moved out of this repo into a `ruevu/plugins` catalog.**
+  It was previously self-hosted here as `cortex-local`, which made cortex's own
+  repo the namespace for every future ruevu plugin — adding a second tool would
+  have forced it either into this repo or into a catalog confusingly named after
+  cortex. The catalog is now a small standalone repo carrying no plugin code,
+  pointing at each plugin's own repository, so the install source stays correct
+  however many tools are added:
+
+  ```bash
+  claude plugin marketplace add ruevu/plugins
+  claude plugin install cortex@ruevu
+  ```
+
+  **Existing installs must be re-pointed once** — a marketplace move is not
+  migrated automatically:
+
+  ```bash
+  claude plugin uninstall cortex@cortex-local
+  claude plugin marketplace remove cortex-local
+  claude plugin marketplace add ruevu/plugins
+  claude plugin install cortex@ruevu
+  ```
+
+  The plugin cache moves with it, to `~/.claude/plugins/cache/ruevu/cortex/<ver>/`.
+
+- **The in-repo manifest is now the *development* marketplace, `cortex-dev`.**
+  A directory-source marketplace needs a manifest in the checkout, so
+  `.claude-plugin/marketplace.json` stays — but it is explicitly the local
+  install that reads the working tree live (`claude plugin install
+  cortex@cortex-dev`), held distinct from the published `cortex@ruevu` so
+  `claude plugin list` shows which one a session is running.
+
+- **The dev manifest no longer carries a version field**, and the merge protocol
+  drops from three version fields to two. A marketplace entry's `version` is
+  optional and resolves from the plugin's own `plugin.json`, so the third copy
+  was pure drift surface. The published catalog omits it for the same reason.
+
+### Added
+
+- **`scripts/check-release-consistency.mjs`, wired into the required CI gate.**
+  The merge protocol's release rules were prose in `.claude/rules/workflow.md`
+  and enforced only by the author remembering them — and they had already
+  drifted twice: 1.1.1–1.2.1 merged untagged (leaving GitHub advertising v1.1.0
+  while `main` was five versions ahead), and this very branch was authored at
+  2.1.1 while 2.2.0 landed on `main` underneath it, leaving it proposing a
+  version *behind* its own base. Neither was caught by anything.
+
+  The check now runs on every PR and fails the gate when: version fields
+  disagree; a non-docs diff carries no bump; a bumped version is not strictly
+  ahead of the base's; or a release has no CHANGELOG section and link
+  reference. Run it locally with
+  `node scripts/check-release-consistency.mjs main`.
+
+### Fixed
+
+- **README documented a `claude plugin add` command that does not exist.**
+  Installing from a GitHub repo is two steps — `claude plugin marketplace add`
+  followed by `claude plugin install <plugin>@<marketplace>` — so the README's
+  one-liner would have failed for anyone following it. Corrected, along with the
+  cache-path and `plugin update` references naming the old marketplace, and the
+  source-vs-name distinction (`ruevu/plugins` is *where to fetch*; `ruevu` is the
+  marketplace's declared *name*) that the one-liner had obscured.
+
 ## [2.2.0] — 2026-08-28
 
 Every index now **checks whether authored content still describes the code it
@@ -2313,6 +2380,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[2.2.1]: https://github.com/ruevu/cortex/releases/tag/v2.2.1
 [2.2.0]: https://github.com/ruevu/cortex/releases/tag/v2.2.0
 [2.1.0]: https://github.com/ruevu/cortex/releases/tag/v2.1.0
 [2.0.4]: https://github.com/ruevu/cortex/releases/tag/v2.0.4
