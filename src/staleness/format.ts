@@ -17,7 +17,12 @@ function truncate(s: string, n: number): string {
  */
 export function formatIndexLine(r: StalenessReport): string | null {
   const { itemized, outstanding, no_reference_point } = r.counts;
-  if (itemized === 0 && outstanding === 0) return null;
+  // `outstanding` alone never earns a line. It is a PERSISTENT count — a todo
+  // whose basis moved has no way to clear it at all (todos are never
+  // reconciled) — so gating on it would print "0 newly flagged, 1 outstanding"
+  // on every index forever, led by a reassuring zero. That is the wallpaper
+  // this design rejects. Outstanding rides as a trailing count behind news.
+  if (itemized === 0) return null;
   const parts = [`staleness: ${itemized} newly flagged`];
   if (outstanding > 0) parts.push(`${outstanding} outstanding`);
   if (no_reference_point > 0) parts.push(`${no_reference_point} without a reference point`);

@@ -28,6 +28,12 @@ describe("formatIndexLine", () => {
       counts: { no_reference_point: 170, basis_moved: 0, verdict_stale: 0, itemized: 0, outstanding: 0 },
     }))).toBeNull();
   });
+  it("is null when only outstanding is non-zero — a persistent count is not news", () => {
+    expect(formatIndexLine(report({
+      counts: { no_reference_point: 170, basis_moved: 1, verdict_stale: 0, itemized: 0, outstanding: 1 },
+    }))).toBeNull();
+  });
+
   it("names the newly-flagged count first", () => {
     const line = formatIndexLine(report({
       itemized: [row()],

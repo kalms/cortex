@@ -36,6 +36,9 @@ export function sweepStaleness(input: SweepInput): StalenessReport {
   const concludedSet = new Set(concluded);
 
   const itemized: StaleRow[] = [];
+  /** Every flagged row, INCLUDING those the changed-file scope excludes from
+   *  itemization. Orphan detection reads this, not `itemized` — see below. */
+  const flagged: StaleRow[] = [];
   let noReferencePoint = 0;
   let basisMoved = 0;
   let verdictStale = 0;
@@ -47,6 +50,17 @@ export function sweepStaleness(input: SweepInput): StalenessReport {
     if (c.basis_hash == null) { noReferencePoint++; continue; }
 
     const current = hashGovernedSource(input.repoPath, c.refs);
+
+    // A verdict recorded against THIS EXACT TREE settles the row, whatever the
+    // basis says. Reconciliation moves `basis_hash` only on `match` (recording
+    // `drift` must not adopt divergent code as the new baseline), so without
+    // this guard an honestly-judged `drift` row would be re-flagged on every
+    // index and every read, forever — the row would be un-silenceable except
+    // by recording a `match` nobody believes. That is the "cries wolf once and
+    // is ignored permanently" failure this design exists to prevent, arriving
+    // through a different door. Judged-at-this-tree means someone has looked.
+    if (c.reconciled_source_hash != null && c.reconciled_source_hash === current) continue;
+
     const movedBasis = current !== c.basis_hash;
     // A todo is never reconciled, so its reconciled_source_hash is always null
     // and this half can never fire for one.
@@ -57,12 +71,10 @@ export function sweepStaleness(input: SweepInput): StalenessReport {
     if (staleVerdict) verdictStale++;
     flaggedRows++;
 
-    if (!touchesChangedFile(input, c.refs)) continue;   // outstanding, not news
-
     const unresolved = resolveGovernedRefs(input.repoPath, c.refs)
       .filter((r) => r.state !== "resolved")
       .map((r) => r.ref.target_ref);
-    itemized.push({
+    flagged.push({
       kind: c.kind,
       id: c.id,
       title: c.title,
@@ -73,13 +85,19 @@ export function sweepStaleness(input: SweepInput): StalenessReport {
       branch_concluded: c.origin_branch != null && concludedSet.has(c.origin_branch),
       unresolved_refs: unresolved,
     });
+    if (touchesChangedFile(input, c.refs)) itemized.push(flagged[flagged.length - 1]);
   }
 
   // Orphaned = the branch is gone AND at least one governed ref is unresolvable.
   // Neither half supports that conclusion alone (§C4): a concluded branch
   // usually means the work LANDED, which is fine. This is still triage — the
   // row is reported, never touched.
-  const orphaned = itemized
+  // Computed over ALL flagged rows, never over `itemized`. An orphan's governed
+  // file typically does not exist, so it can never appear in a git diff or
+  // status — scoping orphan detection to the changed-file set would make it
+  // permanently empty for exactly the population it was designed to find.
+  // This is a list, not an itemization, so it carries no wallpaper risk.
+  const orphaned = flagged
     .filter((r) => r.branch_concluded && r.unresolved_refs.length > 0 && r.origin_branch != null)
     .map((r) => ({ kind: r.kind, id: r.id, origin_branch: r.origin_branch as string }));
 

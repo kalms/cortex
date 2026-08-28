@@ -43,6 +43,13 @@ merge that is exactly the rows the merge touched. Everything else is counted as
 `outstanding`. With no previous index — or when git cannot answer, e.g. the
 baseline commit was rebased away — **nothing is itemized at all**.
 
+**A verdict recorded against the current tree settles a row**, whatever its
+basis says. Reconciliation moves `basis_hash` only on a `match` verdict —
+recording `drift` must not adopt divergent code as the new baseline — so
+without this rule an honestly-judged `drift` row would be re-flagged on every
+index and every read forever, silenceable only by recording a `match` nobody
+believes. "Judged against this tree" means someone has looked.
+
 `basis_hash IS NULL` rows are never backfilled. NULL means *unknowable*, not
 *unchanged*; a fabricated reference point would certify every historical row as
 clean in one stroke.
@@ -120,6 +127,12 @@ repositories, so it has nothing to write through.
 - A stale todo's remedy is a state transition, which a human ratifies via
   `todo({action:"transition"})`.
 
+One caveat on "mutates nothing": `sweepStaleness` is structurally incapable of
+writing, but the runner reaches the store through `openDecisionsDb`, which
+performs schema migration, legacy relocation and a backup snapshot. None of
+those touch row *content*, but it does mean `cortex index` can now trigger a
+store migration as a side effect, inside the index lock.
+
 Two properties make this safe rather than lazy: the authored store lives outside
 the repo, so no prune can destroy content; and a stale fetch can make a live
 branch look concluded, so acting automatically on the branch signal would mean
@@ -145,6 +158,21 @@ acting on a false positive.
   immediately.
 - **One verdict per decision.** A verdict computed on branch X still overwrites
   one computed on `main`.
+- **Switching branches produces a burst.** The changed-file scope is a
+  two-endpoint diff (`<previous indexed commit>..HEAD`), not a "since" walk. If
+  a checkout is indexed on a long-lived branch and then reindexed on `main`,
+  the scope is the whole cross-branch delta and every decision governing those
+  files is itemized at once. Not wrong — those rows' bases genuinely differ
+  from the tree they are being compared against — but it is a burst of
+  low-value questions in the channel this design most wants to keep credible.
+- **Directory refs are not cheap on the read path.** `hashGovernedSource` walks
+  a directory ref's whole subtree with no gitignore awareness, and the briefing
+  now does this on gated reads. Most governed refs in practice are directories.
+  A decision governing a directory that contains build output makes every gated
+  read walk it, and a stray untracked file there flips the row to "moved" with
+  no matching entry in the changed-file set. Hashes are memoized per ref-set
+  within a single briefing, which bounds it across several governing decisions
+  but not across calls.
 
 ## Gates
 

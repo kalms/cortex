@@ -70,7 +70,11 @@ export function gitChangedFiles(repo: string, sinceCommit: string | null): Set<s
       if (p) out.add(p);
     }
   }
-  const status = git(repo, ["status", "--porcelain", "--untracked-files=normal"]);
+  // `--untracked-files=all`, not `normal`: `normal` collapses an untracked
+  // DIRECTORY to a single "newdir/" entry, so a governed ref "newdir/x.ts"
+  // would never match. Under-reporting only costs an itemization, but the
+  // cost of `all` is one extra readdir walk on an already-dirty tree.
+  const status = git(repo, ["status", "--porcelain", "--untracked-files=all"]);
   if (status === null) return sinceCommit ? out : null;
   for (const line of status.split("\n")) {
     const p = line.slice(3).trim(); // "XY <path>"
@@ -93,18 +97,35 @@ export function gitChangedFiles(repo: string, sinceCommit: string | null): Set<s
 export function gitKnownBranches(repo: string): Set<string> | null {
   const out = git(repo, ["for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes"]);
   if (out === null) return null;
+
+  // Strip the LONGEST configured remote name, not everything before the first
+  // "/". Git accepts a remote whose name contains a slash (`git remote add
+  // a/b …`), and branch names routinely contain slashes too, so a naive
+  // indexOf("/") turns refs/remotes/upstream/mirror/feature/x into
+  // "mirror/feature/x" — and a live `feature/x` then reads as a concluded
+  // branch, the one thing C4 must not do. Remotes are sorted longest-first so
+  // "origin/sub" wins over "origin" when both exist.
+  const remotes = (git(repo, ["remote"]) ?? "")
+    .split("\n").map((r) => r.trim()).filter(Boolean)
+    .sort((a, b) => b.length - a.length);
+
   const names = new Set<string>();
   for (const raw of out.split("\n")) {
     const ref = raw.trim();
     if (ref.startsWith("refs/heads/")) {
       names.add(ref.slice("refs/heads/".length));
-    } else if (ref.startsWith("refs/remotes/")) {
-      const rest = ref.slice("refs/remotes/".length); // "<remote>/<branch…>"
-      const slash = rest.indexOf("/");
-      if (slash < 0) continue;
-      const branch = rest.slice(slash + 1);
-      if (branch !== "HEAD") names.add(branch);
+      continue;
     }
+    if (!ref.startsWith("refs/remotes/")) continue;
+    const rest = ref.slice("refs/remotes/".length); // "<remote>/<branch…>"
+    const remote = remotes.find((r) => rest.startsWith(r + "/"));
+    // Fall back to the first segment when no configured remote matches (a
+    // leftover remote-tracking ref for a deleted remote); better a slightly
+    // wrong name than dropping the ref and calling a live branch concluded.
+    const branch = remote != null
+      ? rest.slice(remote.length + 1)
+      : rest.slice(rest.indexOf("/") + 1);
+    if (branch && branch !== "HEAD" && !rest.startsWith("/")) names.add(branch);
   }
   return names;
 }

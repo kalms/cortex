@@ -144,6 +144,37 @@ describe("concludedBranches — the C4 set difference", () => {
   });
 });
 
+describe("sweepStaleness — a verdict recorded against this tree settles the row", () => {
+  it("does NOT flag a row whose drift verdict was recorded against the current tree", () => {
+    // Reconciliation moves basis_hash only on `match`, so a `drift` verdict
+    // leaves the basis permanently stale. Without this rule the row is
+    // re-flagged on every index forever and can only be silenced by recording
+    // a `match` nobody believes.
+    const root = tree("v1\n");
+    const authored = hashGovernedSource(root, [REF]);
+    writeFileSync(join(root, "src", "a.ts"), "v2\n");
+    const judged = hashGovernedSource(root, [REF]);
+    const r = sweepStaleness(input(root, [
+      candidate({ basis_hash: authored, reconciled_source_hash: judged }),
+    ]));
+    expect(r.itemized).toHaveLength(0);
+    expect(r.counts.basis_moved).toBe(0);
+    expect(r.counts.outstanding).toBe(0);
+  });
+
+  it("DOES flag it again once the tree moves past the judged state", () => {
+    const root = tree("v1\n");
+    const authored = hashGovernedSource(root, [REF]);
+    writeFileSync(join(root, "src", "a.ts"), "v2\n");
+    const judged = hashGovernedSource(root, [REF]);
+    writeFileSync(join(root, "src", "a.ts"), "v3\n");
+    const r = sweepStaleness(input(root, [
+      candidate({ basis_hash: authored, reconciled_source_hash: judged }),
+    ]));
+    expect(r.itemized).toHaveLength(1);
+  });
+});
+
 describe("sweepStaleness — orphan detection", () => {
   it("marks a row orphaned only when the branch is gone AND a ref is unresolvable", () => {
     // The governed file must EXIST when the basis is taken and be gone now.
@@ -163,6 +194,26 @@ describe("sweepStaleness — orphan detection", () => {
     }));
     expect(r.concluded_branches).toEqual(["gone"]);
     expect(r.itemized[0].unresolved_refs).toEqual(["src/deleted.ts"]);
+    expect(r.orphaned).toEqual([{ kind: "decision", id: "D-aaaa", origin_branch: "gone" }]);
+  });
+
+  it("reports an orphan whose governed file can never appear in a git diff", () => {
+    // An orphan's governed file usually does not exist, so it is absent from
+    // every changed-file set. Scoping orphan detection to `itemized` would make
+    // it permanently empty for exactly the population it was built to find.
+    const root = tree("v1\n");
+    const deletedRef = { target_kind: "path", target_ref: "src/deleted.ts" };
+    writeFileSync(join(root, "src", "deleted.ts"), "export const d = 1;\n");
+    const stale = hashGovernedSource(root, [deletedRef]);
+    rmSync(join(root, "src", "deleted.ts"));
+    const r = sweepStaleness(input(root, [
+      candidate({ refs: [deletedRef], basis_hash: stale, origin_branch: "gone" }),
+    ], {
+      originBranches: ["gone"], knownBranches: new Set(["main"]),
+      changedFiles: new Set(["src/something-else.ts"]), // the deleted file is NOT here
+    }));
+    expect(r.itemized).toHaveLength(0);      // correctly out of itemization scope
+    expect(r.counts.outstanding).toBe(1);
     expect(r.orphaned).toEqual([{ kind: "decision", id: "D-aaaa", origin_branch: "gone" }]);
   });
 

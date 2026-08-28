@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gitChangedFiles, gitKnownBranches, gitHead } from "../../src/git/worktree-state.js";
+import { concludedBranches } from "../../src/staleness/sweep.js";
 
 function repoWithCommit(): string {
   const root = mkdtempSync(join(tmpdir(), "cortex-sweep-git-"));
@@ -68,7 +69,53 @@ describe("gitKnownBranches", () => {
     expect(known.has("HEAD")).toBe(false);
   });
 
+  it("strips a single-segment remote from a MULTI-segment branch name", () => {
+    // The load-bearing case: origin_branch stores "feature/x", and the
+    // remote-tracking ref is refs/remotes/origin/feature/x.
+    const root = repoWithCommit();
+    execFileSync("git", ["-C", root, "remote", "add", "origin", "https://example.invalid/r.git"]);
+    execFileSync("git", ["-C", root, "update-ref", "refs/remotes/origin/feature/x", "HEAD"]);
+    const known = gitKnownBranches(root)!;
+    expect(known.has("feature/x")).toBe(true);
+    expect(known.has("origin/feature/x")).toBe(false);
+  });
+
+  it("strips a remote whose own NAME contains a slash", () => {
+    const root = repoWithCommit();
+    execFileSync("git", ["-C", root, "remote", "add", "upstream/mirror", "https://example.invalid/r.git"]);
+    execFileSync("git", ["-C", root, "update-ref", "refs/remotes/upstream/mirror/feature/x", "HEAD"]);
+    const known = gitKnownBranches(root)!;
+    expect(known.has("feature/x")).toBe(true);
+    expect(known.has("mirror/feature/x")).toBe(false);
+  });
+
+  it("names files inside an untracked DIRECTORY, not just the directory", () => {
+    const root = repoWithCommit();
+    const base = gitHead(root)!;
+    mkdirSync(join(root, "newdir"), { recursive: true });
+    writeFileSync(join(root, "newdir", "x.ts"), "export const x = 1;\n");
+    const changed = gitChangedFiles(root, base)!;
+    expect(changed.has("newdir/x.ts")).toBe(true);
+  });
+
   it("returns null outside a git repo", () => {
     expect(gitKnownBranches(mkdtempSync(join(tmpdir(), "cortex-nogit-")))).toBeNull();
+  });
+});
+
+describe("C4 end to end: gitKnownBranches feeding concludedBranches", () => {
+  it("does not conclude a branch that exists ONLY as a remote-tracking ref", () => {
+    const root = repoWithCommit();
+    execFileSync("git", ["-C", root, "remote", "add", "origin", "https://example.invalid/r.git"]);
+    execFileSync("git", ["-C", root, "update-ref", "refs/remotes/origin/feature/x", "HEAD"]);
+    // No local head for feature/x — only the remote-tracking ref.
+    expect(concludedBranches(["feature/x"], gitKnownBranches(root))).toEqual([]);
+  });
+
+  it("concludes a branch git knows nothing about, and un-concludes it when recreated", () => {
+    const root = repoWithCommit();
+    expect(concludedBranches(["feature/x"], gitKnownBranches(root))).toEqual(["feature/x"]);
+    execFileSync("git", ["-C", root, "branch", "feature/x"]);
+    expect(concludedBranches(["feature/x"], gitKnownBranches(root))).toEqual([]);
   });
 });

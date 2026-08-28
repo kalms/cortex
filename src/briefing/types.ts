@@ -11,10 +11,12 @@ export interface BriefingFacts {
   callerCount: number;
   fanoutThreshold: number;
   pr?: number;
-  /** The governing decision's stored reference point no longer matches its
-   *  governed source. Distinct from the verdict: a `match` decision whose
+  /** Some active governing decision's governed source has moved since it was
+   *  last judged — its basis moved, or its verdict was recorded against a
+   *  different tree — AND no verdict has been recorded against the tree as it
+   *  stands. Distinct from the displayed verdict: a `match` decision whose
    *  basis moved is exactly the row that reads clean while being wrong. */
-  basisMoved?: boolean;
+  needsRejudge?: boolean;
 }
 
 export interface Briefing {
