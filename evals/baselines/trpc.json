@@ -1,0 +1,61 @@
+{
+  "target": "trpc",
+  "captured_at": "2026-08-28T22:43:44.133Z",
+  "source_sha": "6a70335e02fa1a8bc68e8d065b85687b0d7ffdea",
+  "nodes_by_label": {
+    "channel": 7,
+    "class": 91,
+    "enum": 3,
+    "file": 1363,
+    "folder": 444,
+    "function": 1868,
+    "interface": 447,
+    "method": 308,
+    "module": 1361,
+    "project": 1,
+    "route": 27,
+    "section": 1666,
+    "type": 1876,
+    "variable": 3890
+  },
+  "edges_by_type": {
+    "CALLS": 4125,
+    "CONFIGURES": 158,
+    "CONTAINS_FILE": 1363,
+    "CONTAINS_FOLDER": 387,
+    "DEFINES": 11512,
+    "DEFINES_METHOD": 308,
+    "ENCLOSES": 547,
+    "HTTP_CALLS": 2,
+    "IMPORTS": 834,
+    "RAISES": 48,
+    "SEMANTICALLY_RELATED": 230,
+    "SIMILAR_TO": 1643,
+    "TESTS": 29,
+    "TESTS_FILE": 33,
+    "USAGE": 218,
+    "WRITES": 100
+  },
+  "per_assertion": {
+    "file_sourced_calls": 0,
+    "call_attribution_rate": 61.624242424242425,
+    "qn_collisions": 0,
+    "orphan_definition_rate": 0,
+    "per_language_function_density": {
+      "yaml": 0,
+      "yml": 0,
+      "md": 0,
+      "toml": 0,
+      "json": 0,
+      "js": 0.6190476190476191,
+      "ts": 2.3461012311901506,
+      "tsx": 1.9733333333333334,
+      "html": 0,
+      "sql": 0,
+      "css": 0,
+      "vue": 0,
+      "mdx": 0,
+      "jsx": 1.3333333333333333
+    }
+  }
+}

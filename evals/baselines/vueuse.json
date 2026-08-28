@@ -1,0 +1,56 @@
+{
+  "target": "vueuse",
+  "captured_at": "2026-08-28T22:43:40.836Z",
+  "source_sha": "1354e69588f601f721ce2b5e4328d7c3214a0c7e",
+  "nodes_by_label": {
+    "class": 16,
+    "file": 1248,
+    "folder": 326,
+    "function": 1794,
+    "interface": 863,
+    "method": 24,
+    "module": 1248,
+    "project": 1,
+    "route": 13,
+    "section": 2227,
+    "type": 502,
+    "variable": 1591
+  },
+  "edges_by_type": {
+    "CALLS": 1953,
+    "CONFIGURES": 1120,
+    "CONTAINS_FILE": 1248,
+    "CONTAINS_FOLDER": 325,
+    "DEFINES": 8265,
+    "DEFINES_METHOD": 24,
+    "ENCLOSES": 535,
+    "FILE_CHANGES_WITH": 4,
+    "HTTP_CALLS": 2,
+    "IMPORTS": 788,
+    "SEMANTICALLY_RELATED": 17,
+    "SIMILAR_TO": 18,
+    "TESTS": 8,
+    "TESTS_FILE": 128,
+    "USAGE": 225,
+    "WRITES": 18
+  },
+  "per_assertion": {
+    "file_sourced_calls": 0,
+    "call_attribution_rate": 38.96569380440348,
+    "qn_collisions": 0,
+    "orphan_definition_rate": 0,
+    "per_language_function_density": {
+      "yml": 0,
+      "md": 0,
+      "js": 10.3125,
+      "ts": 2.0175953079178885,
+      "toml": 0,
+      "vue": 0.5209302325581395,
+      "css": 0,
+      "json": 0,
+      "yaml": 0,
+      "sh": 0,
+      "html": 0
+    }
+  }
+}

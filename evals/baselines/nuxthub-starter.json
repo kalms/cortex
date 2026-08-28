@@ -1,0 +1,59 @@
+{
+  "target": "nuxthub-starter",
+  "captured_at": "2026-08-28T22:43:35.062Z",
+  "source_sha": "edd6f104e2eaadad93e5b214bac2195c7e95682d",
+  "nodes_by_label": {
+    "file": 24,
+    "folder": 15,
+    "function": 15,
+    "module": 24,
+    "project": 1,
+    "route": 12,
+    "section": 8,
+    "variable": 42
+  },
+  "edges_by_type": {
+    "CALLS": 6,
+    "CONTAINS_FILE": 24,
+    "CONTAINS_FOLDER": 12,
+    "DEFINES": 89,
+    "HANDLES": 9,
+    "HTTP_CALLS": 7
+  },
+  "per_assertion": {
+    "http_calls_edge_count_nonzero": 7,
+    "http_calls_to_api_route": 0,
+    "route_node_named_api_path": 0,
+    "composable_has_callers": 0,
+    "pinia_store_node_exists": 0,
+    "vue_function_node_count_nonzero": 6,
+    "vue_function_has_high_degree": 0,
+    "sfc_qn_well_formed": [
+      "Users-rka-Development-cortex-wt-eval-universal-evals-cache-nuxthub-starter-src.app.components.ImageGallery.uploadImage",
+      "Users-rka-Development-cortex-wt-eval-universal-evals-cache-nuxthub-starter-src.app.components.ImageGallery.deleteImage",
+      "Users-rka-Development-cortex-wt-eval-universal-evals-cache-nuxthub-starter-src.app.components.MessagesPanel.sendMessage",
+      "Users-rka-Development-cortex-wt-eval-universal-evals-cache-nuxthub-starter-src.app.components.MessagesPanel.deleteMessage",
+      "Users-rka-Development-cortex-wt-eval-universal-evals-cache-nuxthub-starter-src.app.components.MessagesPanel.updateMessage"
+    ],
+    "vue_file_is_module_node": 5,
+    "nitro_handler_function_exists": 9,
+    "nitro_route_handles_edge": 9,
+    "no_tarball_routes": [],
+    "no_codeartifact_routes": [],
+    "decision_node_count_nonzero": 0,
+    "decision_governs_edges_exist": 0,
+    "decision_rationale_no_xml_leakage": [],
+    "file_sourced_calls": 0,
+    "call_attribution_rate": 0,
+    "qn_collisions": 0,
+    "orphan_definition_rate": 0,
+    "per_language_function_density": {
+      "md": 0,
+      "vue": 1.2,
+      "ts": 0.6428571428571429,
+      "yaml": 0,
+      "sql": 0,
+      "json": 0
+    }
+  }
+}
