@@ -151,6 +151,23 @@ export const GovernsRefSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("file"), path: z.string() }),
   z.object({ kind: z.literal("function"), path: z.string(), name: z.string() }),
   z.object({ kind: z.literal("symbol"), path: z.string(), name: z.string() }),
+  /** A GOVERNS link the graph cannot resolve to a node. Previously these were
+   *  DROPPED, so a decision governing code that never landed — or that has
+   *  since been deleted — rendered as governing nothing at all,
+   *  indistinguishable from a declarative decision. Surfacing it is the point:
+   *  that row is the one most likely to be quietly wrong.
+   *
+   *  `reason` is deliberately narrow. This is GRAPH resolution, not filesystem
+   *  truth: the adapter has no repo path, so "the index has no node for this"
+   *  is all it can honestly claim. The filesystem-truth version (resolved /
+   *  missing / unresolvable) is on `decision({action:"pending"})`, which does
+   *  have a checkout root to stat against. */
+  z.object({
+    kind: z.literal("unresolved"),
+    ref: z.string(),
+    path: z.string().nullable(),
+    reason: z.literal("not-in-graph"),
+  }),
 ]);
 export const AdaptedAlternativeSchema = z.object({ title: z.string(), reason: z.string() });
 

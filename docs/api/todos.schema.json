@@ -141,6 +141,35 @@
                         "name"
                       ],
                       "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "unresolved"
+                        },
+                        "ref": {
+                          "type": "string"
+                        },
+                        "path": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "reason": {
+                          "type": "string",
+                          "const": "not-in-graph"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "ref",
+                        "path",
+                        "reason"
+                      ],
+                      "additionalProperties": false
                     }
                   ]
                 }
