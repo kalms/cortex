@@ -36,6 +36,7 @@ import {
 import type { SearchExecError, SearchExecOutcome } from "../../graph/code-search.js";
 import { Registry } from "../../db/registry.js";
 import { captureIndexMeta } from "../../graph/capture-index-meta.js";
+import { runStalenessSweep } from "../../staleness/run-sweep.js";
 import { invalidateFreshness } from "../freshness.js";
 import { stagingDbPath, cleanupStagingDb } from "../../db/staging-path.js";
 import { publishStagedDb } from "../../db/swap-graph-db.js";
@@ -386,6 +387,7 @@ export function registerCodeTools(
               mkdirSync(dirname(stagePath), { recursive: true });
               readCacheEntry(cacheKey, stagePath);
               const out = await withFrames(`imported from cache key ${cacheKey.slice(0, 12)}…`, repoPath, stagePath, dbPath);
+              runStalenessSweep(repoPath, dbPath); // before captureIndexMeta — see run-sweep.ts
               captureIndexMeta(dbPath, repoPath);
               invalidateFreshness(repoPath);
               registerRepo();
@@ -419,6 +421,7 @@ export function registerCodeTools(
             if (result.isError) return result;
             const baseText = result.content?.[0]?.text ?? "indexed";
             const out = await withFrames(baseText, repoPath, stagePath, dbPath);
+            runStalenessSweep(repoPath, dbPath); // before captureIndexMeta — see run-sweep.ts
             captureIndexMeta(dbPath, repoPath);
             invalidateFreshness(repoPath);
             registerRepo();
