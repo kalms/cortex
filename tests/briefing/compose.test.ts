@@ -23,8 +23,10 @@ function deps(
         return over.record ?? null;
       },
     } as any,
+    links: { findByDecision: () => [] } as any,
     store: {} as any,
     project: "p",
+    repoPath: "/nonexistent",
   };
 }
 

@@ -7,6 +7,9 @@ export function formatHeadline(f: BriefingFacts): string {
     const tag = f.decision.verdict === "match" ? "governs" : "⚠ governs";
     lines.push(`${tag} ${f.decision.id} "${f.decision.title}" (${f.decision.displayState})`);
   }
+  if (f.basisMoved) {
+    lines.push("⚠ basis moved since it was authored — re-judge before editing");
+  }
   if (f.callerCount >= f.fanoutThreshold) {
     lines.push(`blast radius: ${f.callerCount} callers — trace_path(mode="callers") to see them`);
   } else if (f.decision) {
