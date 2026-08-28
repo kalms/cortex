@@ -52,10 +52,18 @@ code that never landed stops looking identical to one that governs nothing.
 ### Notes
 
 - `CONTRACT_VERSION` stays **1** — a new discriminated-union member is additive
-  under the v1 policy. But generated item schemas are `additionalProperties:
-  false`, so **a consumer validating against a stale schema copy will now reject
-  responses containing an `unresolved` ref**. Mesh must refresh its copy of
-  `docs/api/*.schema.json`.
+  under the v1 policy. Generated item schemas are `additionalProperties: false`,
+  so a consumer that *validates* against a stale schema copy would reject
+  responses carrying an `unresolved` ref. **Mesh is not such a consumer**
+  (checked, 2026-08-29): it vendors no schema files and validates nothing at
+  runtime — its only reference to `docs/api/*.schema.json` is a prose comment.
+- **Consumers that filter `governs` by the presence of a `path`, rather than by
+  `kind`, will render unresolved refs as if they were ordinary files.** Mesh's
+  `DecisionCard.tsx` does exactly this, so an unresolved ref shows there as a
+  plain path pill with nothing marking it missing — worse than the old silence.
+  Consumers should either skip `kind === "unresolved"` or render it distinctly.
+  Mesh's other two consumers (`adapt.js`, `engine.js`) guard on `kind` and are
+  unaffected.
 - The viewer needs no change: `RefPill`'s default branch already renders an
   unknown kind, and its click handler no-ops without a resolvable frame.
 
