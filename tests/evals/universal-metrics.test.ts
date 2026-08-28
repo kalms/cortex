@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GraphStore } from "../../src/graph/store.js";
 import { runAssertion } from "../../evals/src/assertions/runner.js";
+import { RATE_METRICS } from "../../evals/src/assertions/verdicts.js";
 import { UNIVERSAL_ASSERTIONS } from "../../evals/src/assertions/universal.js";
 
 function metric(name: string) {
@@ -151,5 +152,15 @@ describe("universal metrics", () => {
 
     const r = runAssertion(metric("per_language_function_density"), { dbPath });
     expect(r.observed).toEqual({ rs: 1 });
+  });
+
+  it("every RATE_METRICS name is a real universal assertion", () => {
+    // RATE_METRICS is keyed by string, away from the assertions themselves.
+    // Rename a metric in universal.ts and its epsilon silently drops from
+    // 0.5pp to 0, so ordinary jitter would start reporting regressions.
+    const names = new Set(UNIVERSAL_ASSERTIONS.map((a) => a.name));
+    for (const m of RATE_METRICS) {
+      expect(names.has(m), `RATE_METRICS names "${m}", which no assertion defines`).toBe(true);
+    }
   });
 });

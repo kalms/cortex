@@ -8,6 +8,9 @@ import type {
   RatchetOutcome,
 } from "../../evals/src/assertions/types.js";
 
+// NOTE: this builds a `sql` assertion. Never use it for the density metric —
+// applyRatchet discriminates on the query kind, so a density test built here
+// would silently exercise the SCALAR branch and prove nothing. Use density().
 function universal(name: string, direction: RatchetDirection): Assertion {
   return {
     fix_id: "universal",
@@ -89,7 +92,7 @@ describe("applyRatchet", () => {
 
   it("judges a map-valued metric per language and fails on any regression", () => {
     const [r] = applyRatchet(
-      [result(universal("per_language_function_density", "higher_is_better"), { go: 0, ts: 4.2 })],
+      [result(density(), { go: 0, ts: 4.2 })],
       baseline({ per_language_function_density: { go: 3.1, ts: 4.2 } }),
     );
     expect(r!.passed).toBe(false);
@@ -99,7 +102,7 @@ describe("applyRatchet", () => {
 
   it("treats a language present at baseline and absent now as a regression to zero", () => {
     const [r] = applyRatchet(
-      [result(universal("per_language_function_density", "higher_is_better"), { ts: 4.2 })],
+      [result(density(), { ts: 4.2 })],
       baseline({ per_language_function_density: { rb: 2.0, ts: 4.2 } }),
     );
     expect(r!.passed).toBe(false);
@@ -145,5 +148,20 @@ describe("applyRatchet", () => {
     );
     expect(r!.passed).toBe(false);
     expect((r!.ratchet as Record<string, { status: string }>).rb!.status).toBe("fail");
+  });
+
+  it("handles a language key named 'text' without collapsing the metric", () => {
+    // A repo holding one file named *.text puts a `text` key in the density
+    // map. An isMetricMap that excluded `{ text }` results by key name read
+    // that as a tool-call result, dropped density into the scalar path, and
+    // made renderSummary throw — taking the whole run's report with it.
+    const [r] = applyRatchet(
+      [result(density(), { ts: 3.0, text: 0.0 })],
+      baseline({ per_language_function_density: { ts: 3.0, text: 0.0 } }),
+    );
+    expect(r!.passed).toBe(true);
+    const byKey = r!.ratchet as Record<string, RatchetOutcome>;
+    expect(byKey.text!.status).toBe("pass");
+    expect(byKey.ts!.status).toBe("pass");
   });
 });
