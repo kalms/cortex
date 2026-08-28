@@ -38,10 +38,22 @@ describe("staleness report store", () => {
     expect(readReport(root)).toBeNull();
   });
 
-  it("leaves no .tmp file behind and never throws on an unwritable root", () => {
+  it("leaves no .tmp file behind", () => {
     const root = mkdtempSync(join(tmpdir(), "cortex-report-"));
     writeReport(root, REPORT);
     expect(readdirSync(join(root, ".cortex"))).toEqual(["staleness.json"]);
-    expect(() => writeReport("/proc/definitely/not/writable", REPORT)).not.toThrow();
+  });
+
+  // Deliberately NOT a magic OS path: an earlier version of this test probed
+  // /proc to force a write failure, which passed instantly on macOS and hung a
+  // CI worker for 45 minutes on Linux. Occupying `.cortex` with a regular FILE
+  // makes the recursive mkdir fail identically on every platform, in
+  // microseconds. The timeout is a backstop — a hanging test is far worse than
+  // a failing one, because it stalls the whole suite instead of naming itself.
+  it("never throws when the report path cannot be created", { timeout: 5000 }, () => {
+    const root = mkdtempSync(join(tmpdir(), "cortex-report-"));
+    writeFileSync(join(root, ".cortex"), "not a directory");
+    expect(() => writeReport(root, REPORT)).not.toThrow();
+    expect(readReport(root)).toBeNull();
   });
 });
