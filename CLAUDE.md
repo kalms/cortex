@@ -102,6 +102,32 @@ default 12): governing decision + reconciliation verdict + caller count. A
 `partial`/`drift`/`unreconciled` verdict = read the decision before editing.
 On demand: `cortex brief <path-or-qn>`. Gate off: `CORTEX_BRIEF=0`.
 
+### Staleness signal — authored content whose basis moved
+
+Every index runs a **staleness sweep** over decisions and todos, comparing each
+row's stored reference point (`basis_hash`, captured when it was authored)
+against its governed source now. Three populations, three treatments: rows with
+**no reference point** (`basis_hash IS NULL` — everything authored before 2.1.0)
+are **counted, never itemized**; rows whose **basis moved** or whose **verdict
+went stale** are itemized, but only when their governed files changed since the
+last index. Everything else is counted as `outstanding`.
+
+Surfaced three ways from one computation: a bounded `cortex index` line, the
+SessionStart headline (`cortex staleness`), and — the one that matters — a
+`⚠ basis moved` line on the study-time briefing, which re-fires on every read
+until the row is judged. A `match` verdict whose basis moved still escalates:
+that row reads clean while being wrong.
+
+**The output is a queue of questions, never findings.** `equal` is sound;
+`differs` proves nothing (a reformat fires as hard as a real shift). The remedy
+is always a judgment — `decision({action:"reconcile"})` or
+`todo({action:"transition"})` — **never a deletion**. The sweep itself mutates
+no row of any kind. NULL is *unknowable*, not *unchanged*, and is never
+backfilled.
+
+Gate: `CORTEX_STALENESS=0`. Details:
+[staleness-detection.md](docs/architecture/staleness-detection.md).
+
 ### Architecture hotspots — ranked-by-risk modules
 
 `get_architecture(aspects=["hotspots"])` returns `{ project, hotspots:

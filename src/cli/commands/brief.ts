@@ -65,7 +65,7 @@ export function runBriefCommand(
     try {
       const threshold = Number(process.env.CORTEX_BRIEF_FANOUT ?? 12) || 12;
       const { headline, exitCode } = briefForTarget(
-        { search, decisions, store, project: ctx.projectName },
+        { search, decisions, links, store, project: ctx.projectName, repoPath: root },
         target,
         { fanoutThreshold: threshold },
       );

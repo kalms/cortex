@@ -24,8 +24,10 @@ export function attachBriefing<T extends TextResult>(
       {
         search,
         decisions: ctx.decisionsRepo,
+        links: ctx.decisionLinksRepo,
         store: ctx.store,
         project,
+        repoPath: ctx.repoPath,
       },
       target,
       { fanoutThreshold: Number(process.env.CORTEX_BRIEF_FANOUT ?? 12) || 12 },

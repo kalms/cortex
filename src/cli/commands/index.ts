@@ -14,6 +14,7 @@ import { deriveProjectName } from "../../frame-extraction/cluster-tfidf-hdbscan.
 import { resolveCortexDbPath } from "../../db/resolve-path.js";
 import { Registry } from "../../db/registry.js";
 import { captureIndexMeta } from "../../graph/capture-index-meta.js";
+import { runStalenessSweep } from "../../staleness/run-sweep.js";
 import type { IndexMode } from "../../db/cache.js";
 import { stagingDbPath, cleanupStagingDb } from "../../db/staging-path.js";
 import { publishStagedDb } from "../../db/swap-graph-db.js";
@@ -136,6 +137,13 @@ export async function runIndexCommand(cmd: IndexCommand, ctx: ProjectContext): P
         } catch { /* non-fatal */ }
         publishStagedDb({ stagePath, liveDbPath: dbPath });
         process.stdout.write(report.join("\n") + "\n"); // published — now the counts are true
+
+        // Staleness sweep BEFORE captureIndexMeta: it reads the PREVIOUS
+        // index's indexed_commit to scope itemization, and captureIndexMeta
+        // overwrites exactly that value. Swapping these two lines makes every
+        // sweep compare HEAD against HEAD — no error, no output, no signal.
+        const staleness = runStalenessSweep(repoPath, dbPath);
+        if (staleness) process.stdout.write(staleness + "\n");
 
         captureIndexMeta(dbPath, repoPath); // freshness baseline on the canonical path
 

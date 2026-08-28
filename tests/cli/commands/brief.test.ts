@@ -8,7 +8,14 @@ describe("briefForTarget (pure core of runBriefCommand)", () => {
   it("returns empty headline + exit 0 when ungated", () => {
     vi.mocked(blastRadius).mockReturnValue(0);
     const r = briefForTarget(
-      { search: { findGoverning: () => [] }, decisions: { get: () => null }, store: {} as any, project: "p" } as any,
+      {
+        search: { findGoverning: () => [] },
+        decisions: { get: () => null },
+        links: { findByDecision: () => [] },
+        store: {} as any,
+        project: "p",
+        repoPath: "/nonexistent",
+      } as any,
       "src/x.ts::y",
       { fanoutThreshold: 12 },
     );
@@ -22,8 +29,10 @@ describe("briefForTarget (pure core of runBriefCommand)", () => {
       {
         search: { findGoverning: () => [{ id: "D-x", title: "t", status: "active" }] },
         decisions: { get: () => ({ reconciliation_verdict: "drift" }) },
+        links: { findByDecision: () => [] },
         store: {} as any,
         project: "p",
+        repoPath: "/nonexistent",
       } as any,
       "src/foo.ts::bar",
       { fanoutThreshold: 12 },
