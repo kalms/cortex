@@ -45,3 +45,66 @@ export function gitBranch(repoPath: string): string | null {
   const name = out.trim();
   return name && name !== "HEAD" ? name : null;
 }
+
+/**
+ * Repo-relative paths that changed since `sinceCommit`, union everything dirty
+ * in the working tree right now.
+ *
+ * Returns `null` when git cannot answer — outside a repo, or when
+ * `sinceCommit` no longer exists (rebased or squashed away). null means
+ * **unknown**, and a caller must treat it as "cannot scope", NEVER as "nothing
+ * changed": the latter would silently itemize nothing forever after a rebase.
+ *
+ * Rename entries in porcelain v1 read "R  old -> new"; only the destination is
+ * recorded. Paths containing characters git quotes (`core.quotePath`) are
+ * recorded in their quoted form and will simply fail to match a governed ref —
+ * an under-report, which costs an itemization, never a false one.
+ */
+export function gitChangedFiles(repo: string, sinceCommit: string | null): Set<string> | null {
+  const out = new Set<string>();
+  if (sinceCommit) {
+    const diff = git(repo, ["diff", "--name-only", `${sinceCommit}..HEAD`]);
+    if (diff === null) return null; // unknown base — cannot scope
+    for (const line of diff.split("\n")) {
+      const p = line.trim();
+      if (p) out.add(p);
+    }
+  }
+  const status = git(repo, ["status", "--porcelain", "--untracked-files=normal"]);
+  if (status === null) return sinceCommit ? out : null;
+  for (const line of status.split("\n")) {
+    const p = line.slice(3).trim(); // "XY <path>"
+    if (!p) continue;
+    const arrow = p.indexOf(" -> ");
+    out.add(arrow >= 0 ? p.slice(arrow + 4) : p);
+  }
+  return out;
+}
+
+/**
+ * Every branch name git still knows: local heads plus remote-tracking branches
+ * with their remote prefix stripped (`origin/foo` → `foo`), since that is the
+ * form `origin_branch` stores. `origin/HEAD` is dropped — a symbolic pointer,
+ * not a branch anyone authored on.
+ *
+ * Returns `null` outside a git repo. The C4 set difference treats null as "no
+ * conclusion possible" rather than "every branch is gone".
+ */
+export function gitKnownBranches(repo: string): Set<string> | null {
+  const out = git(repo, ["for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes"]);
+  if (out === null) return null;
+  const names = new Set<string>();
+  for (const raw of out.split("\n")) {
+    const ref = raw.trim();
+    if (ref.startsWith("refs/heads/")) {
+      names.add(ref.slice("refs/heads/".length));
+    } else if (ref.startsWith("refs/remotes/")) {
+      const rest = ref.slice("refs/remotes/".length); // "<remote>/<branch…>"
+      const slash = rest.indexOf("/");
+      if (slash < 0) continue;
+      const branch = rest.slice(slash + 1);
+      if (branch !== "HEAD") names.add(branch);
+    }
+  }
+  return names;
+}
