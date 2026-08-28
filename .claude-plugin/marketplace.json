@@ -1,18 +1,17 @@
 {
-  "name": "cortex-local",
+  "name": "cortex-dev",
   "owner": {
     "name": "ruevu",
     "url": "https://github.com/ruevu"
   },
   "metadata": {
-    "description": "Local marketplace wrapper for the cortex plugin"
+    "description": "Development marketplace — installs cortex live from this checkout. The published marketplace is ruevu/plugins."
   },
   "plugins": [
     {
       "name": "cortex",
       "source": "./",
-      "description": "Knowledge graph MCP server with decision provenance — code indexing, architectural decisions, graph-enriched search, and 2D frames viewer",
-      "version": "2.2.0"
+      "description": "Knowledge graph MCP server with decision provenance — code indexing, architectural decisions, graph-enriched search, and 2D frames viewer"
     }
   ]
 }

@@ -12,13 +12,39 @@ The indexer is a prebuilt native binary — maintained as the separate **cortex-
 
 ### Claude Code Plugin (recommended)
 
-The canonical install. One command, and every Claude Code session in every repo on the machine picks up cortex's MCP server, skills, hooks, and slash commands.
+The canonical install. Add the repo as a marketplace, then install the plugin from it — after that, every Claude Code session in every repo on the machine picks up cortex's MCP server, skills, hooks, and slash commands.
 
 ```bash
-claude plugin add github:ruevu/cortex
+claude plugin marketplace add ruevu/plugins
+claude plugin install cortex@ruevu
 ```
 
-This single install registers, in one go:
+The two arguments are different things, which is easy to trip over:
+
+- `ruevu/plugins` is **where to fetch from** — GitHub `owner/repo` shorthand for
+  [`https://github.com/ruevu/plugins`](https://github.com/ruevu/plugins), a small
+  catalog repo that lists ruevu's plugins and points at the repo each one lives
+  in. It carries no plugin code of its own. (A bare `ruevu` is rejected: an owner
+  is not a repo.)
+- `ruevu` in `cortex@ruevu` is **the marketplace's name**, declared by that
+  catalog's manifest and independent of the repo it lives in. It's the name
+  `claude plugin marketplace list` shows, and the namespace every future ruevu
+  plugin installs from — so this source line stays correct as tools are added.
+
+The same two steps work from inside a session as `/plugin marketplace add ruevu/plugins` and `/plugin install cortex@ruevu`.
+
+> **Already installed as `cortex@cortex-local`?** As of 2.1.1 the marketplace
+> moved out of this repo into the `ruevu/plugins` catalog and is named `ruevu`.
+> A marketplace move isn't migrated automatically — re-point once:
+>
+> ```bash
+> claude plugin uninstall cortex@cortex-local
+> claude plugin marketplace remove cortex-local
+> claude plugin marketplace add ruevu/plugins
+> claude plugin install cortex@ruevu
+> ```
+
+This registers, in one go:
 
 - **MCP tools** routed per-call (`search_graph`, `get_code_snippet`, `trace_path`, `context_pack`, `decision({action:"why"})`, `decision({action:"create"})`, `query_graph`, `index_repository`, `decision({action:"candidates"})`, `check_contracts`, the `pr` and `todo` action-dispatched tools, etc.). `list_projects` and `delete_project` are cross-repo; everything else takes a `repo_path` argument so a single server can serve work across many repos in one session.
 - **The SessionStart hook** (`hooks/check-index.sh`) — prints the active repo, its index state, and routing reminders into every new conversation.
@@ -60,6 +86,24 @@ The `bin/cortex-mcp.sh` wrapper resolves its own install path via `BASH_SOURCE` 
 
 > **Note.** If you maintain a project-scoped `.mcp.json` and Claude Code's trust prompt sets `enabledMcpjsonServers: ["cortex"]` in `.claude/settings.local.json`, deleting the `.mcp.json` later (intentionally or via a stash/branch switch) leaves the setting dangling and `/mcp` then fails with `MCP error -32000: Connection closed`. The plugin install avoids this entire failure class because there is no project-level file to lose track of.
 
+#### Local dev install (directory marketplace)
+
+To run the plugin live off your checkout instead of the published catalog, this
+repo keeps its own **development** marketplace manifest at
+[`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json), named
+`cortex-dev`:
+
+```bash
+claude plugin marketplace add /path/to/your/cortex
+claude plugin install cortex@cortex-dev
+```
+
+A directory marketplace reads the plugin's files **live from the checkout**, so
+edits take effect on the next session with no re-install. This is deliberately
+*not* the `ruevu` marketplace — `cortex@ruevu` is the published install fetched
+from GitHub, `cortex@cortex-dev` is your working tree. Keeping the names distinct
+means `claude plugin list` tells you which one a session is actually running.
+
 ### Development mode
 
 ```bash
@@ -80,7 +124,7 @@ Common causes:
   token and does not export it into the server's environment. The path collapsed
   to the current repo, so the server exec'd a nonexistent `<cwd>/bin/cortex-mcp.sh`
   and died before startup. **Fixed in 1.4.8 — update cortex** (`claude plugin
-  update cortex@cortex-local`, or `git pull` a source install).
+  update cortex@ruevu`, or `git pull` a source install).
 - A project-scoped `.mcp.json` is referenced by `enabledMcpjsonServers` in
   `.claude/settings.local.json` but the file itself is missing. Either restore the
   file or remove `"cortex"` from `enabledMcpjsonServers` and rely on the plugin
@@ -95,10 +139,11 @@ Common causes:
 3. the plugin's own config — see the source-vs-cache note below for *where* this is read from
 
 > **Source vs. cache — where the plugin actually runs from.** For a **git
-> install** (`claude plugin add github:ruevu/cortex`), the plugin is materialized
-> into `~/.claude/plugins/cache/cortex-local/cortex/<ver>/` and read from there.
-> For a **`directory`-source marketplace** (the local-dev install whose
-> `source.path` points at your cortex checkout), Claude Code reads the plugin's
+> install** (`claude plugin marketplace add ruevu/plugins` + `claude plugin install
+> cortex@ruevu`), the plugin is materialized
+> into `~/.claude/plugins/cache/ruevu/cortex/<ver>/` and read from there.
+> For a **`directory`-source marketplace** (the `cortex-dev` local-dev install
+> whose `source.path` points at your cortex checkout), Claude Code reads the plugin's
 > files **live from that source checkout** — *not* the versioned cache. So editing
 > the checkout takes effect on the next session, and patching a cache dir has no
 > effect (the versioned cache dirs are stale snapshots from past
@@ -108,14 +153,14 @@ Common causes:
 **The plugin runs an old version of cortex**
 
 For a **git install**, the plugin cache at
-`~/.claude/plugins/cache/cortex-local/cortex/<ver>/` is a snapshot taken at
+`~/.claude/plugins/cache/ruevu/cortex/<ver>/` is a snapshot taken at
 install time; bumping cortex's `plugin.json` version (and `marketplace.json`
 version) forces a re-sync on the next Claude Code session. (A **directory
 marketplace** reads the source checkout live, so it's never stale relative to your
 working tree.) For a force-refresh of a git-install cache today:
 
 ```bash
-rm -rf ~/.claude/plugins/cache/cortex-local/cortex/<old-ver>
+rm -rf ~/.claude/plugins/cache/ruevu/cortex/<old-ver>
 # restart Claude Code; the marketplace re-syncs from /Users/<you>/.../cortex on next session
 ```
 
@@ -131,7 +176,7 @@ launcher actually runs from (see the source-vs-cache note above):
 # directory-marketplace (dev) install — rebuild in your checkout:
 cd /path/to/your/cortex && npm rebuild better-sqlite3
 # git install — rebuild in the versioned cache dir:
-cd ~/.claude/plugins/cache/cortex-local/cortex/<ver> && npm rebuild better-sqlite3
+cd ~/.claude/plugins/cache/ruevu/cortex/<ver> && npm rebuild better-sqlite3
 ```
 
 ## Architecture
