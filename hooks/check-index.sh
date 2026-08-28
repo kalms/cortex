@@ -266,11 +266,18 @@ decision({action:"search"}) are empty. Offer to bootstrap them:
 EOF
             fi
         fi
-        # Reconciliation drift probe. Cheap: deterministic hash compare, no LLM.
+        # Index-time staleness headline (spec C3). Replaces the raw
+        # `reconcile status` count that used to live here: that line printed
+        # the whole never-reconciled backlog every session with no delta — it
+        # read "56 drifted" for weeks — and a channel that cries wolf once is
+        # ignored permanently. `cortex staleness` prints nothing unless the
+        # LAST INDEX actually flagged a row whose basis moved, and carries the
+        # backlog as a trailing count behind that. Degrade-safe: no report, no
+        # sweep, or an older CLI all yield empty output and no line.
         if [ -n "$CORTEX_BIN" ]; then
-            DRIFTED="$(cd "$REPO" && "$CORTEX_BIN" reconcile status 2>/dev/null | tr -dc '0-9')"
-            if [ -n "$DRIFTED" ] && [ "$DRIFTED" -gt 0 ]; then
-                printf '↻ %s decision(s) drifted since last reconciliation. Call decision({action:"pending"}) to refresh their verdicts.\n' "$DRIFTED"
+            STALENESS="$(cd "$REPO" && "$CORTEX_BIN" staleness 2>/dev/null)"
+            if [ -n "$STALENESS" ]; then
+                printf '%s\n' "$STALENESS"
             fi
         fi
         ;;
