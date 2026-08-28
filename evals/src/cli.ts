@@ -7,6 +7,7 @@ import { runAssertion } from "./assertions/runner.js";
 import { runToolAssertion } from "./assertions/tool-runner.js";
 import { ALL_ASSERTIONS, selectAssertions } from "./assertions/registry.js";
 import { applyRatchet } from "./assertions/verdicts.js";
+import { mergeImprovements } from "./baselines.js";
 import { writeReportArtifacts, type TargetReport } from "./report.js";
 import type {
   Targets,
@@ -21,6 +22,7 @@ type Args = {
   captureBaseline?: string;
   suite?: string;
   determinism?: boolean;
+  acceptImprovements?: boolean;
 };
 
 function parseArgs(argv: string[]): Args {
@@ -31,6 +33,7 @@ function parseArgs(argv: string[]): Args {
     else if (a.startsWith("--capture-baseline=")) args.captureBaseline = a.slice("--capture-baseline=".length);
     else if (a.startsWith("--suite=")) args.suite = a.slice("--suite=".length);
     else if (a === "--determinism") args.determinism = true;
+    else if (a === "--accept-improvements") args.acceptImprovements = true;
   }
   return args;
 }
@@ -183,6 +186,25 @@ function main(): void {
       reports.push(runTarget(t, args.path, { determinism: args.determinism }));
     } catch (e) {
       console.error(`[${t.name}] failed:`, e instanceof Error ? e.message : e);
+    }
+  }
+
+  if (args.acceptImprovements) {
+    for (const r of reports) {
+      if (!r.baseline) {
+        console.log(`[${r.target}] no baseline to update — run --capture-baseline=${r.target} first.`);
+        continue;
+      }
+      const { baseline, adopted } = mergeImprovements(r.baseline, r.results);
+      if (adopted.length === 0) {
+        console.log(`[${r.target}] no improvements to adopt.`);
+        continue;
+      }
+      writeFileSync(
+        resolve("evals/baselines", `${r.target}.json`),
+        JSON.stringify(baseline, null, 2),
+      );
+      console.log(`[${r.target}] adopted ${adopted.length}: ${adopted.join(", ")}`);
     }
   }
 
