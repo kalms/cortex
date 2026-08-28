@@ -125,6 +125,14 @@ export async function pendingReconciliationsAction(
     if (refs.length === 0) continue; // declarative — not reconcilable
     const current = hashGovernedSource(ctx.repoPath, refs);
     if (current === d.reconciled_source_hash) continue; // verdict current
+    // Per-ref resolution state, keyed by position so it lines up with `refs`.
+    // `hashGovernedSource` already performs exactly this existsSync walk and
+    // then throws the result away, folding each ref into a <missing> or
+    // <unresolved> sentinel inside one opaque digest. A caller judging this
+    // decision needs to know WHICH refs failed — and a `match` verdict is
+    // refused while any of them is unresolved, so without this the caller
+    // gets the refusal with no way to have seen it coming.
+    const resolution = resolveGovernedRefs(ctx.repoPath, refs);
     out.push({
       id: d.id,
       title: d.title,
@@ -132,7 +140,12 @@ export async function pendingReconciliationsAction(
       resolution: d.resolution,
       rationale: d.rationale,
       last_verdict: d.reconciliation_verdict ?? "unknown",
-      governed: refs.map((r) => ({ ref: r.target_ref, source: inlineSource(ctx.repoPath, r) })),
+      governed: refs.map((r, i) => ({
+        ref: r.target_ref,
+        state: resolution[i].state,   // "resolved" | "missing" | "unresolvable"
+        path: resolution[i].path,     // repo-relative when derivable, else null
+        source: inlineSource(ctx.repoPath, r),
+      })),
     });
   }
   return ok(JSON.stringify({ pending: out }, null, 2));

@@ -118,9 +118,46 @@ describe("buildAdaptedDecisions — governs ref resolution", () => {
     ]);
   });
 
-  it("drops links whose target is not in the project (silent)", () => {
+  it("SURFACES links whose target is not in the project, rather than dropping them", () => {
+    // Behaviour change (spec B3): these used to be dropped silently, so a
+    // decision governing code that never landed rendered as governing NOTHING
+    // — indistinguishable from a declarative decision, and the row most likely
+    // to be quietly wrong was the one that showed least.
     const links: DecisionLink[] = [
       { decision_id: "dec-1", target_kind: "path", target_ref: "src/missing.ts",
+        relation: "GOVERNS", created_at: "" },
+    ];
+    const [result] = buildAdaptedDecisions([baseDecision], links, new Map(), new Map());
+    expect(result?.governs).toEqual([
+      { kind: "unresolved", ref: "src/missing.ts", path: "src/missing.ts", reason: "not-in-graph" },
+    ]);
+  });
+
+  it("surfaces an unresolvable qn ref with a path when one can be derived", () => {
+    const links: DecisionLink[] = [
+      { decision_id: "dec-1", target_kind: "qn", target_ref: "src/gone.ts::fn",
+        relation: "GOVERNS", created_at: "" },
+    ];
+    const [result] = buildAdaptedDecisions([baseDecision], links, new Map(), new Map());
+    expect(result?.governs).toEqual([
+      { kind: "unresolved", ref: "src/gone.ts::fn", path: "src/gone.ts", reason: "not-in-graph" },
+    ]);
+  });
+
+  it("surfaces a qn ref with no '::' separator, with a null path", () => {
+    const links: DecisionLink[] = [
+      { decision_id: "dec-1", target_kind: "qn", target_ref: "bareName",
+        relation: "GOVERNS", created_at: "" },
+    ];
+    const [result] = buildAdaptedDecisions([baseDecision], links, new Map(), new Map());
+    expect(result?.governs).toEqual([
+      { kind: "unresolved", ref: "bareName", path: null, reason: "not-in-graph" },
+    ]);
+  });
+
+  it("still emits NOTHING for non-code targets (decision/pr), which have their own relations", () => {
+    const links: DecisionLink[] = [
+      { decision_id: "dec-1", target_kind: "pr", target_ref: "42",
         relation: "GOVERNS", created_at: "" },
     ];
     const [result] = buildAdaptedDecisions([baseDecision], links, new Map(), new Map());

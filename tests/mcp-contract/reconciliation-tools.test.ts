@@ -33,6 +33,33 @@ describe("record_reconciliation", () => {
     // display_state asserted in Task 6
   });
 
+  it("pending: each governed entry carries its per-ref resolution state (spec B3)", async () => {
+    // One ref that resolves, one that does not. The resolution state is what
+    // `hashGovernedSource` computes and discards; a caller judging this
+    // decision needs to know WHICH ref failed, because a `match` verdict is
+    // refused while any is unresolved.
+    writeFileSync(join(h.repoPath, "present.ts"), "export const p = 1;\n");
+    const c = await callTool(h, "decision", {
+      action: "create", title: "mixed refs", description: "d", rationale: "r",
+    });
+    const id = JSON.parse(c.content[0].text).id;
+    await callTool(h, "decision", { action: "link", decision_id: id, target: "present.ts", relation: "GOVERNS" });
+    await callTool(h, "decision", { action: "link", decision_id: id, target: "absent.ts", relation: "GOVERNS" });
+
+    const res = await callTool(h, "decision", { action: "pending", limit: 50 });
+    const pending = JSON.parse(res.content[0].text).pending as Array<any>;
+    const row = pending.find((p: any) => p.id === id);
+    expect(row).toBeDefined();
+    const byRef = Object.fromEntries(row.governed.map((g: any) => [g.ref, g]));
+    expect(byRef["present.ts"].state).toBe("resolved");
+    expect(byRef["present.ts"].path).toBe("present.ts");
+    expect(byRef["absent.ts"].state).toBe("missing");
+    // And the refusal a caller would hit names the same ref, so the two agree.
+    const refused = await callTool(h, "decision", { action: "reconcile", decision_id: id, verdict: "match" });
+    expect(refused.isError).toBeTruthy();
+    expect(refused.content[0].text).toContain("absent.ts");
+  });
+
   it("pending_reconciliations: lists active+drifted with source; excludes in-sync", async () => {
     writeFileSync(join(h.repoPath, "y.ts"), "export const y = 1;\n");
     const c = await callTool(h, "decision", { action: "create", title: "governs y", description: "d", rationale: "r", resolution: "y is 1" });

@@ -105,13 +105,19 @@ function parseAlternatives(raw: string | null): AdaptedAlternative[] {
   }
 }
 
+/** A ref the graph has no node for. Emitted rather than dropped — see the
+ *  `unresolved` variant's note in api-schemas.ts. */
+function unresolvedRef(ref: string, path: string | null): GovernsRef {
+  return { kind: "unresolved", ref, path, reason: "not-in-graph" };
+}
+
 export function resolveGovernsRef(
   link: { target_kind: string; target_ref: string },
   nodesByPath: Map<string, NodeRow>,
   framesByPath: Map<string, FrameInfo>,
 ): GovernsRef[] {
   if (link.target_kind === "path") {
-    if (!nodesByPath.has(link.target_ref)) return [];
+    if (!nodesByPath.has(link.target_ref)) return [unresolvedRef(link.target_ref, link.target_ref)];
     const out: GovernsRef[] = [];
     const frame = framesByPath.get(link.target_ref);
     if (frame) out.push({ kind: "frame", id: String(frame.frame_id), label: frame.frame_label });
@@ -121,10 +127,11 @@ export function resolveGovernsRef(
 
   if (link.target_kind === "qn") {
     const sepIdx = link.target_ref.indexOf("::");
-    if (sepIdx === -1) return [];
+    // No "::" — not a qualified name we can split, so there is no path to show.
+    if (sepIdx === -1) return [unresolvedRef(link.target_ref, null)];
     const path = link.target_ref.slice(0, sepIdx);
     const name = link.target_ref.slice(sepIdx + 2);
-    if (!nodesByPath.has(path)) return [];
+    if (!nodesByPath.has(path)) return [unresolvedRef(link.target_ref, path)];
     const out: GovernsRef[] = [];
     const frame = framesByPath.get(path);
     if (frame) out.push({ kind: "frame", id: String(frame.frame_id), label: frame.frame_label });
@@ -132,5 +139,7 @@ export function resolveGovernsRef(
     return out;
   }
 
+  // decision / pr / todo targets are not code refs; they are surfaced through
+  // their own relations, so they stay out of `governs` entirely.
   return [];
 }

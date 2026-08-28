@@ -18,6 +18,55 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [2.2.2] — 2026-08-29
+
+Closes the last open bullet of the git-provenance spec's read surface (B3):
+every `governs` entry now carries a resolution state, so a decision governing
+code that never landed stops looking identical to one that governs nothing.
+
+### Added
+
+- **Per-ref resolution state on `decision({action:"pending"})`.** Each
+  `governed` entry gains `state` (`resolved` / `missing` / `unresolvable`) and
+  `path`. `hashGovernedSource` already performed exactly this `existsSync` walk
+  and discarded the result, folding every ref into one opaque digest. A caller
+  judging a decision needs to know *which* ref failed — especially since a
+  `match` verdict is refused while any ref is unresolved, so previously the
+  refusal arrived with no way to have seen it coming.
+
+### Changed
+
+- **`governs` entries the graph cannot resolve are surfaced instead of dropped.**
+  `resolveGovernsRef` silently discarded any GOVERNS link whose path had no
+  node, so a decision governing deleted or never-landed code rendered as
+  governing *nothing* — indistinguishable from a declarative decision, and the
+  row most likely to be quietly wrong was the one that showed least. Such refs
+  now appear as a new `unresolved` variant carrying `ref`, `path` and
+  `reason: "not-in-graph"`. Non-code targets (decision / PR) are still excluded,
+  since they surface through their own relations.
+
+  The `reason` is deliberately narrow: the HTTP adapter has no repo path, so
+  *"the index has no node for this"* is all it can honestly claim. Filesystem
+  truth lives on the `pending` surface, which has a checkout root to stat.
+
+### Notes
+
+- `CONTRACT_VERSION` stays **1** — a new discriminated-union member is additive
+  under the v1 policy. Generated item schemas are `additionalProperties: false`,
+  so a consumer that *validates* against a stale schema copy would reject
+  responses carrying an `unresolved` ref. **Mesh is not such a consumer**
+  (checked, 2026-08-29): it vendors no schema files and validates nothing at
+  runtime — its only reference to `docs/api/*.schema.json` is a prose comment.
+- **Consumers that filter `governs` by the presence of a `path`, rather than by
+  `kind`, will render unresolved refs as if they were ordinary files.** Mesh's
+  `DecisionCard.tsx` does exactly this, so an unresolved ref shows there as a
+  plain path pill with nothing marking it missing — worse than the old silence.
+  Consumers should either skip `kind === "unresolved"` or render it distinctly.
+  Mesh's other two consumers (`adapt.js`, `engine.js`) guard on `kind` and are
+  unaffected.
+- The viewer needs no change: `RefPill`'s default branch already renders an
+  unknown kind, and its click handler no-ops without a resolvable frame.
+
 ## [2.2.1] — 2026-08-28
 
 ### Changed
@@ -2380,6 +2429,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[2.2.2]: https://github.com/ruevu/cortex/releases/tag/v2.2.2
 [2.2.1]: https://github.com/ruevu/cortex/releases/tag/v2.2.1
 [2.2.0]: https://github.com/ruevu/cortex/releases/tag/v2.2.0
 [2.1.0]: https://github.com/ruevu/cortex/releases/tag/v2.1.0
