@@ -18,6 +18,74 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [2.2.0] — 2026-08-28
+
+Every index now **checks whether authored content still describes the code it
+governs**, and says so where it will actually be read. Decisions and todos
+carry a reference point captured when they were written (2.1.0); this release
+compares that reference point against the tree that was just indexed, and
+surfaces what moved.
+
+### Added
+
+- **Index-time staleness sweep** over decisions and todos, running TS-side
+  beside the existing post-index passes at all three index sites (the CLI path
+  and both MCP paths). Three populations, three treatments: rows with **no
+  reference point** (`basis_hash IS NULL`) are **counted and never itemized**;
+  rows whose **basis moved** or whose **verdict went stale** are itemized — but
+  only when their governed files changed since the last index. Everything else
+  is counted as `outstanding`. With no previous index, or when git cannot
+  answer, nothing is itemized at all. The first sweep on a real store must not
+  dump the backlog: a channel that cries wolf once is ignored permanently.
+- **`cortex staleness [--json]`** prints the last sweep's headline from the
+  checkout's own `.cortex/staleness.json`, and is silent (exit 0) when there is
+  no news. A linked worktree reads its own report, never the main checkout's.
+- **`⚠ basis moved` on the study-time briefing** — the surface that changes
+  agent behaviour, because it fires at the moment the governed symbol is read
+  and re-fires until the row is judged. A `match` verdict whose basis has moved
+  still escalates: that row is precisely the one that reads clean while being
+  wrong.
+- **Branch-conclusion detection**: a set difference between the branches the
+  store remembers and the branches git still knows (local heads plus
+  remote-tracking refs). Needs no event hook — `git worktree remove`, `prune`
+  and `rm -rf` are all unobservable. Weak alone (a concluded branch usually
+  means the work landed); combined with unresolvable governed refs it marks a
+  row as orphaned.
+- **`gitChangedFiles` / `gitKnownBranches`** helpers, both returning `null` for
+  "git could not answer" — which callers must treat as *cannot scope*, never as
+  *nothing changed*.
+
+### Changed
+
+- **The SessionStart banner no longer prints the raw drifted-decision count.**
+  That line counted the never-reconciled backlog every session with no delta —
+  it read the same number for weeks. It is replaced by the staleness headline,
+  which appears only when the last index actually flagged something and carries
+  the backlog as a trailing count behind it.
+
+### Fixed
+
+- Nothing — this release adds a signal rather than correcting one.
+
+### Notes
+
+- **The sweep is triage-only.** It performs no state changes and no deletions,
+  for any entity type, including rows whose branch is gone and whose governed
+  refs no longer resolve. A decision from abandoned work is still true history;
+  a stale todo's remedy is a state transition a human ratifies. This is
+  enforced structurally: the sweep takes rows as data, not repositories.
+- **What the hash proves is asymmetric.** `equal` is sound — the governed code
+  is byte-identical to the reference point. `differs` proves nothing: a reformat
+  fires exactly as hard as a real basis shift. The output is a queue of
+  questions, never of findings.
+- **`NULL` means unknowable, never unchanged**, and is never backfilled. Rows
+  authored before 2.1.0 have no reference point and none can be manufactured,
+  so they are counted forever and itemized never. In practice this means the
+  signal only starts working for content authored or updated after 2.1.0 —
+  including after any long-running MCP server has been restarted onto it.
+- Gate: `CORTEX_STALENESS=0` disables the sweep, the CLI, and the briefing line.
+  `CORTEX_BRIEF=0` independently silences the whole briefing.
+
 ## [2.1.0] — 2026-08-26
 
 Authored content — decisions, todos and stories — now carries **git identity**.
@@ -2245,6 +2313,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[2.2.0]: https://github.com/ruevu/cortex/releases/tag/v2.2.0
 [2.1.0]: https://github.com/ruevu/cortex/releases/tag/v2.1.0
 [2.0.4]: https://github.com/ruevu/cortex/releases/tag/v2.0.4
 [2.0.3]: https://github.com/ruevu/cortex/releases/tag/v2.0.3
