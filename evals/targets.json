@@ -25,9 +25,11 @@
       "suites": ["nuxt"]
     },
     {
-      "name": "anthill-cloud",
-      "local_path": "/Users/rka/Development/anthill-cloud",
-      "packs": ["universal", "nuxt"],
+      "name": "open-pencil",
+      "repo_url": "https://github.com/open-pencil/open-pencil.git",
+      "sha": "master",
+      "default_branch": "master",
+      "packs": ["universal"],
       "suites": ["nuxt"]
     },
     { "name": "vueuse",          "repo_url": "https://github.com/vueuse/vueuse.git",           "sha": "main", "packs": ["universal"], "suites": ["corpus"] },

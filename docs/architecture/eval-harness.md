@@ -26,10 +26,12 @@ evals/targets.json   — list of target repos (cloneable or local_path)
 evals/src/queries.ts — fixed list of "killer queries" (Cypher illustrative + SQL concrete)
 ```
 
-Default targets are Nuxt UI, NuxtHub starter, `elk`, and the
-`anthill-cloud` monorepo from the field assessment. A further seventeen
-multi-language repositories form the **corpus suite**, which is opt-in — see
-[Assertion packs and suites](#assertion-packs-and-suites) below. The killer
+Default targets are Nuxt UI, NuxtHub starter, `elk`, and `open-pencil` — the
+first three Nuxt, the fourth a large Vue 3 + Tauri desktop app that stands in
+for a real-world application and therefore runs the universal pack only. A
+further seventeen multi-language repositories form the **corpus suite**, which
+is opt-in — see [Assertion packs and suites](#assertion-packs-and-suites)
+below. The killer
 queries cover:
 
 - `functions_high_degree` — does the indexer extract enough function
@@ -144,7 +146,7 @@ matter: `packs` defaults to `["universal"]`, so a new target gets the portable
 checks and none of the ecosystem-specific ones; `suites` defaults to `["nuxt"]`.
 Selection lives in `selectAssertions` (registry) and `selectTargets` (cli).
 
-    npm run eval                     # default: the Nuxt suite, unchanged
+    npm run eval                     # default suite (`nuxt`), unchanged
     npm run eval -- --suite=corpus   # the 17-repo multi-language corpus
     npm run eval -- --suite=all
 

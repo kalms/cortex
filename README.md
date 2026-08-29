@@ -396,7 +396,7 @@ Cluster outputs land in `.tmp/frame-extraction/clusters/<repo-slug>.json`; eval 
 
 ## Eval harness
 
-A separate eval harness lives under `evals/` and is invoked via `npm run eval`. Unlike the frame-extraction eval (which scores cluster quality), this harness scores Cortex's tool surface against real-world target repos defined in [`evals/targets.json`](evals/targets.json) (currently Nuxt UI, NuxtHub starter, anthill-cloud).
+A separate eval harness lives under `evals/` and is invoked via `npm run eval`. Unlike the frame-extraction eval (which scores cluster quality), this harness scores Cortex's tool surface against real-world target repos defined in [`evals/targets.json`](evals/targets.json) (currently Nuxt UI, NuxtHub starter, `elk`, and `open-pencil`, plus an opt-in 17-repo multi-language corpus behind `--suite=corpus`).
 
 The harness produces a **scorecard** per target: `nodes_by_label` + `edges_by_type` + a fixed list of "killer queries" exercising the queries that the [field assessment](docs/field-reports/field-assessment-nuxt-monorepo.md) showed Cortex falling short on (high-degree functions in Vue/Nuxt repos, `HTTP_CALLS` edges, composables called, Nitro handlers, etc.). Each query has a baseline_expected `pass`/`fail` and the harness reports anything surprising relative to the baseline.
 

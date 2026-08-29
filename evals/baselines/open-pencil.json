@@ -1,0 +1,63 @@
+{
+  "target": "open-pencil",
+  "captured_at": "2026-08-29T13:14:57.841Z",
+  "source_sha": "d178a7fd70c53f078bfb7bffaf8fc97e546e9d21",
+  "nodes_by_label": {
+    "channel": 16,
+    "class": 99,
+    "enum": 4,
+    "field": 31,
+    "file": 3058,
+    "folder": 693,
+    "function": 6581,
+    "interface": 844,
+    "method": 725,
+    "module": 3057,
+    "project": 1,
+    "route": 11,
+    "section": 3804,
+    "type": 858,
+    "variable": 11163
+  },
+  "edges_by_type": {
+    "CALLS": 18411,
+    "CONFIGURES": 2185,
+    "CONTAINS_FILE": 3058,
+    "CONTAINS_FOLDER": 677,
+    "DEFINES": 27169,
+    "DEFINES_METHOD": 725,
+    "EMITS": 8,
+    "ENCLOSES": 1187,
+    "FILE_CHANGES_WITH": 94,
+    "HTTP_CALLS": 5,
+    "IMPLEMENTS": 2,
+    "IMPORTS": 1113,
+    "LISTENS_ON": 25,
+    "RAISES": 49,
+    "SEMANTICALLY_RELATED": 26,
+    "SIMILAR_TO": 175,
+    "TESTS": 1,
+    "USAGE": 5691,
+    "WRITES": 136
+  },
+  "per_assertion": {
+    "file_sourced_calls": 0,
+    "call_attribution_rate": 66.38422682092228,
+    "qn_collisions": 0,
+    "orphan_definition_rate": 0,
+    "per_language_function_density": {
+      "yaml": 0,
+      "yml": 0,
+      "md": 0,
+      "toml": 0,
+      "json": 0,
+      "ts": 3.4727180010198877,
+      "rs": 5.6,
+      "html": 0,
+      "js": 20.25,
+      "vue": 1.5169491525423728,
+      "css": 0,
+      "tsx": 1
+    }
+  }
+}

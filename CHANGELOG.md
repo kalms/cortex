@@ -21,8 +21,8 @@ All notable changes to Cortex are documented here. The format follows
 ## [2.3.0] — 2026-08-24
 
 Adds language-agnostic indexing-quality metrics to the eval harness. Before
-this, `evals/` could only answer "is Nuxt extraction still right?" on four Nuxt
-targets. It can now answer "did indexing get worse on THIS repo?" for any
+this, `evals/` could only answer "is Nuxt extraction still right?" on a handful
+of Nuxt targets. It can now answer "did indexing get worse on THIS repo?" for any
 repository in any language, against a 17-repo multi-language corpus.
 
 The design turns on one constraint: a universal metric has **no** meaningful
@@ -58,8 +58,8 @@ attribution rates falling 5-18 points — every one flagged as a regression.
 - **`--accept-improvements`**: adopt ratchet-confirmed gains into baselines.
   Adoption is never automatic — a normal run never rewrites its own reference,
   and only metrics the ratchet confirmed as improved are written.
-- Baselines for `elk`, `vueuse`, `trpc` and `nuxthub-starter`, captured on
-  indexer 0.3.2.
+- Baselines for `elk`, `vueuse`, `trpc`, `nuxthub-starter` and `open-pencil`,
+  captured on indexer 0.3.2.
 
 ### Changed
 
@@ -70,6 +70,14 @@ attribution rates falling 5-18 points — every one flagged as a regression.
   a bogus low value reads as excellent and could be adopted as an improvement.
 - Assertions are scoped into packs (`universal` / `nuxt`) and selected per
   target, so ecosystem-specific and portable checks coexist in one runner.
+- **The fourth default target is now `open-pencil`**, replacing the private
+  `anthill-cloud` checkout. The old entry pointed at a proprietary repository
+  through a machine-specific `local_path`, so nobody else could run the default
+  suite and the numbers it produced were unreproducible. `open-pencil`
+  (Vue 3 + Tauri, ~2,400 TS and ~240 Vue files) fills the same
+  large-real-world-application role from a public URL, and runs the `universal`
+  pack only — it is not a Nuxt app, and the Nuxt assertions would measure zero
+  against it. `targets.json` now carries no absolute paths at all.
 
 ### Fixed
 
