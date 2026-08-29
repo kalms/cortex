@@ -21,7 +21,11 @@ import { selectAmbientByDiversity } from "../frame-diversity.js";
 import { rollupFramePairs } from "./frame-pair-rollup.js";
 import { rollupFrameFlows } from "./frame-flow-rollup.js";
 import { classifyFramesInternal, kindWeight, type FrameLayer } from "../frame-kind.js";
-import { layoutFrames, STAGE_W, STAGE_H } from "./frame-layout.js";
+import {
+  layoutFrames, sizeFor, stageFor, STAGE_W, STAGE_H,
+  FULL_FRAME_MIN, FULL_FRAME_MAX, type Stage,
+} from "./frame-layout.js";
+import { rollupGovernancePairs, type GovernedRef } from "./governance-rollup.js";
 import { placeNonAmbientFrames, SATELLITE_SIZE } from "./floating-placement.js";
 
 /** Per-layer nominal sink for the layout's vertical force, used ONLY for frames
@@ -109,7 +113,13 @@ function buildFileBlobs(nodes: readonly NodeRow[]): FileBlob[] {
 export function buildFrameMap(
   nodes: readonly NodeRow[],
   edges: readonly EdgeRow[],
-  opts: { applyKindWeight?: boolean; applyDiversity?: boolean; applyLayout?: boolean } = {},
+  opts: {
+    applyKindWeight?: boolean; applyDiversity?: boolean; applyLayout?: boolean; applyFullSim?: boolean;
+    /** GOVERNS links (decisions + todos) for the governance force. Omitted →
+     *  the force is inert. Loaded by the caller (`loadGovernance`, best-effort)
+     *  so this function stays pure over the graph. */
+    governance?: readonly GovernedRef[];
+  } = {},
 ): FrameMap {
   // Kind-weight ranking is ON by default (taxonomy enable slice, observe verdict
   // positive — D-g4qb). CORTEX_KIND_WEIGHT is now an OPT-OUT: set it to "0" to
@@ -177,14 +187,67 @@ export function buildFrameMap(
     return NOMINAL_SINK[layerById.get(frame_id) ?? "domain"];
   };
 
+  // Full-sim placement: run EVERY frame through the force layout, not just the
+  // ambient set. The ambient cut stays exactly as it is — it now decides
+  // EMPHASIS (frame size, and the viewer's `deemphasized` styling) rather than
+  // doubling as the decision of who gets a real position. Ranking, extraction,
+  // and placement become three separable layers, extending the split
+  // frame-ranking-design.md already drew between extraction count and ambient
+  // render count.
+  //
+  // Why: the ambient budget is capped at 10 (max(4, min(10, ceil(n*0.7)))), so a
+  // 120-frame repo sent 110 frames down the satellite path. That path seeds each
+  // satellite at its ambient-partner centroid, which for most frames falls INSIDE
+  // the ambient cloud and is then projected onto the keep-out box boundary —
+  // collapsing a 2-D placement onto a 1-D perimeter (86 of 110 onto one edge).
+  // The cap was never a performance limit (D-pzc8 cites the "readable-map
+  // budget"; 120 frames measures at ~170ms, inside its own sub-second bar), so
+  // the sim can simply take everyone.
+  //
+  // Opt-out via CORTEX_FULL_SIM=0, which restores the ambient-only layout plus
+  // the satellite path verbatim.
+  const applyFullSim = opts.applyFullSim ?? process.env.CORTEX_FULL_SIM !== "0";
+  const forLayout = applyFullSim ? ranked : ambient;
+
+  // Size encodes MEMBER COUNT, for every frame, on one wide band.
+  //
+  // It used to encode emphasis instead — ambient frames took the 110–160 band,
+  // everything else a flat 84 — which threw the member-count signal away below
+  // the cut and made the map read as one uniform square repeated 110 times. It
+  // also inverted: a 74-member frame rendered at 84px next to a 6-member frame
+  // at 110px.
+  //
+  // Emphasis has its own channel and always did — the `ambient` flag reaches the
+  // viewer as `deemphasized` and drives opacity/label prominence. Size and
+  // emphasis are now orthogonal: size says how much code, emphasis says how much
+  // narrative weight, and the two read together instead of fighting for one
+  // channel.
+  const allCounts = forLayout.map((r) => r.member_count);
+  const minAll = allCounts.length ? Math.min(...allCounts) : 0;
+  const maxAll = allCounts.length ? Math.max(...allCounts) : 0;
+  const sizeOf = (r: { frame_id: number; member_count: number }): number =>
+    sizeFor(r.member_count, minAll, maxAll, FULL_FRAME_MIN, FULL_FRAME_MAX);
+
+  // Stage scales with the frames it must hold, so occupancy stays at the density
+  // the reference 10-frame layout reads well at instead of saturating. Small
+  // repos clamp to the reference stage → byte-identical to today.
+  const stage: Stage = applyFullSim
+    ? stageFor(forLayout.map(sizeOf))
+    : { w: STAGE_W, h: STAGE_H };
+
   const positioned = layoutFrames(
-    ambient.map((r) => ({
+    forLayout.map((r) => ({
       frame_id: r.frame_id,
       frame_label: r.frame_label,
       member_count: r.member_count,
+      ...(applyFullSim ? { size: sizeOf(r) } : {}),
       ...(applyLayout ? { sink: effectiveSink(r.frame_id) } : {}),
     })),
     pairs,
+    stage,
+    // Governance force (frame-layout-design.md force 4). Inert when the caller
+    // supplies no governance — every existing caller stays byte-identical.
+    opts.governance ? rollupGovernancePairs(nodes, opts.governance) : [],
   );
   const posById = new Map(positioned.map((p) => [p.id, p]));
 
@@ -192,18 +255,29 @@ export function buildFrameMap(
   // the pair-weighted centroid of the ambient frames they connect to, so they
   // drift near related content instead of an arbitrary strip. Ambient positions
   // (above) are untouched — byte-identical to the pre-slice output.
-  const ambientPositions = positioned.map((p) => ({ id: p.id, x: p.x, y: p.y }));
-  const ambientBoxes = positioned.map((p) => ({ id: p.id, x: p.x, y: p.y, w: p.w, h: p.h }));
-  const nonAmbient = ranked.filter((r) => !ambientIds.has(r.frame_id)).map((r) => ({ frame_id: r.frame_id }));
-  const floatPos = placeNonAmbientFrames(nonAmbient, pairs, ambientPositions, ambientBoxes);
+  //
+  // Dead under full-sim: every frame already has a simulated position, so there
+  // is nothing left to float. Skipped rather than run-and-discard (it is O(n²)
+  // per separation sweep).
+  const floatPos = applyFullSim
+    ? new Map<number, { x: number; y: number }>()
+    : placeNonAmbientFrames(
+        ranked.filter((r) => !ambientIds.has(r.frame_id)).map((r) => ({ frame_id: r.frame_id })),
+        pairs,
+        positioned.map((p) => ({ id: p.id, x: p.x, y: p.y })),
+        positioned.map((p) => ({ id: p.id, x: p.x, y: p.y, w: p.w, h: p.h })),
+      );
 
   const frames: FrameMapEntry[] = ranked.map((r) => {
     const p = posById.get(r.frame_id);
+    // `ambient` is the emphasis flag (the ranker's cut), NOT "has a position" —
+    // under full-sim every frame is positioned, including below-the-cut ones.
+    const isAmbient = ambientIds.has(r.frame_id);
     if (p) {
       return {
         id: r.frame_id, name: r.frame_label, count: r.member_count,
         x: p.x, y: p.y, w: p.w, h: p.h,
-        ambient: true, rank: r.rank, score: r.score,
+        ambient: isAmbient, rank: r.rank, score: r.score,
         layer: layerById.get(r.frame_id) ?? "domain",
       };
     }
@@ -217,5 +291,5 @@ export function buildFrameMap(
     };
   });
 
-  return { frames, stage: { w: STAGE_W, h: STAGE_H } };
+  return { frames, stage };
 }

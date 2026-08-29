@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { weightedCentroid, repelFromBoxes, marginSlot, SATELLITE_SIZE, placeNonAmbientFrames, separateMovables, ambientCloud, pushOutsideCloud, CLOUD_GAP } from "../../src/frame-extraction/positioning/floating-placement.js";
+import { weightedCentroid, repelFromBoxes, marginSlot, SATELLITE_SIZE, placeNonAmbientFrames, separateMovables, ambientCloud, pushOutsideCloud, CLOUD_GAP, contentBounds } from "../../src/frame-extraction/positioning/floating-placement.js";
 
 describe("weightedCentroid", () => {
   it("returns null for no anchors", () => {
@@ -358,5 +358,56 @@ describe("separateMovables — saturated stage", () => {
     const m = out[0]!;
     expect(Number.isInteger(m.x) && Number.isInteger(m.y)).toBe(true);
     expect(m.x >= 42 && m.x <= 958 && m.y >= 42 && m.y <= 758).toBe(true); // clamped on-stage
+  });
+});
+
+describe("contentBounds", () => {
+  it("returns the bounding box of the anchor frames", () => {
+    expect(contentBounds([
+      { x: 100, y: 100, w: 40, h: 40 },
+      { x: 300, y: 200, w: 60, h: 20 },
+    ])).toEqual({ x0: 80, y0: 80, x1: 330, y1: 210 });
+  });
+
+  it("is null for an empty set", () => {
+    expect(contentBounds([])).toBeNull();
+  });
+});
+
+describe("marginSlot — content-relative gutter", () => {
+  const content = { x0: 900, y0: 800, x1: 1500, y1: 1200 };
+  const STAGE = { w: 2465, h: 1972 };
+
+  it("sits just under the CONTENT, not at the stage bottom", () => {
+    // The stage-bottom gutter on a count-scaled stage strands a lone aggregate
+    // hundreds of px below every frame — the `generated` dot at y=1944.
+    const stageSlot = marginSlot(0, 3, 16, STAGE);
+    const contentSlot = marginSlot(0, 3, 16, STAGE, content);
+    expect(stageSlot.y).toBe(STAGE.h - 28);
+    expect(contentSlot.y).toBe(content.y1 + 28 + 8);
+    expect(contentSlot.y).toBeLessThan(stageSlot.y - 500);
+  });
+
+  it("spreads across the CONTENT width", () => {
+    const a = marginSlot(0, 3, 16, STAGE, content);
+    const c = marginSlot(2, 3, 16, STAGE, content);
+    expect(a.x).toBeGreaterThanOrEqual(content.x0);
+    expect(c.x).toBeLessThanOrEqual(content.x1);
+    expect(c.x).toBeGreaterThan(a.x);
+  });
+
+  it("centres a lone tie-less item on the content", () => {
+    expect(marginSlot(0, 1, 16, STAGE, content).x).toBe((content.x0 + content.x1) / 2);
+  });
+
+  it("stays on stage when the content edge runs close to it", () => {
+    const tight = { x0: 0, y0: 0, x1: STAGE.w, y1: STAGE.h };
+    const s = marginSlot(0, 2, 16, STAGE, tight);
+    expect(s.y).toBeLessThanOrEqual(STAGE.h - 8);
+    expect(s.x).toBeLessThanOrEqual(STAGE.w - 8);
+  });
+
+  it("without content bounds, the stage gutter is unchanged (byte-identical)", () => {
+    expect(marginSlot(0, 3, 84)).toEqual(marginSlot(0, 3, 84, { w: 1000, h: 800 }, null));
   });
 });

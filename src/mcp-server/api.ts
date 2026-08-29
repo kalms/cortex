@@ -34,6 +34,7 @@ import { buildFileEdges } from "./api-edges.js";
 import { buildFrameMap } from "../frame-extraction/positioning/frame-map.js";
 import { STAGE_W, STAGE_H } from "../frame-extraction/positioning/frame-layout.js";
 import { positionAggregates } from "../frame-extraction/positioning/aggregate-positioning.js";
+import { loadGovernance } from "../architecture/governed.js";
 import { respond, respondError } from "./api-respond.js";
 import { httpFreshnessFor } from "./api-freshness.js";
 import {
@@ -344,6 +345,20 @@ export async function bindWithRetry(
  *   POST body so a session in a linked worktree matches the server's home repo.
  * @returns A {@link ViewerServerHandle}; `port` is `-1` when the bind failed.
  */
+/** Repo root whose decisions store backs the layout's governance force, for the
+ *  project a request addresses (falling back to the server's bound project).
+ *  Null when the name resolves to nothing — the caller then skips governance and
+ *  the force stays inert. */
+export function frameGovernanceRoot(
+  registry: { findByName(name: string): { root_path: string } | null },
+  boundProject: string | null | undefined,
+  requestedProject: string | null | undefined,
+): string | null {
+  const name = requestedProject ?? boundProject ?? null;
+  if (!name) return null;
+  return registry.findByName(name)?.root_path ?? null;
+}
+
 export function startViewerServer(
   store: GraphStore,
   indexerProject?: string | null,
@@ -658,7 +673,16 @@ export function startViewerServer(
         try {
           const nodes = resolved.store.getAllNodesUnified(project ?? undefined);
           const edges = resolved.store.getAllEdgesUnified(project ?? undefined);
-          const map = buildFrameMap(nodes, edges);
+          // Governance force input (frame-layout-design.md force 4). Loaded HERE
+          // rather than inside buildFrameMap, so the frame-extraction layer keeps
+          // no dependency on the decisions store — the decoupling D-bj3n and
+          // D-xwxj asked for. Best-effort: loadGovernance returns empty on any
+          // failure, and an empty list leaves the force inert.
+          const govRoot = frameGovernanceRoot(registry, indexerProject, project);
+          const gov = govRoot ? loadGovernance(govRoot) : null;
+          const map = buildFrameMap(nodes, edges, {
+            governance: gov ? [...gov.decisions, ...gov.todos] : undefined,
+          });
           respond(res, FramesResponseSchema, { version: CONTRACT_VERSION, ...map }, freshCtx());
         } finally {
           if (resolved.owned) resolved.store.close();

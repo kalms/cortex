@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mulberry32, seedFromFrames, layoutFrames, STAGE_W, STAGE_H, type LayoutInputFrame } from "../../src/frame-extraction/positioning/frame-layout.js";
+import { mulberry32, seedFromFrames, layoutFrames, stageFor, STAGE_W, STAGE_H, type LayoutInputFrame } from "../../src/frame-extraction/positioning/frame-layout.js";
 import type { FramePairWeight } from "../../src/frame-extraction/positioning/frame-pair-rollup.js";
 
 describe("mulberry32", () => {
@@ -242,5 +242,106 @@ describe("layoutFrames — vertical stratification (layer-adjacency force)", () 
     const bboxCenterX = (minX + maxX) / 2;
     // Allow 1px slack for integer quantization.
     expect(Math.abs(bboxCenterX - STAGE_W / 2)).toBeLessThanOrEqual(1);
+  });
+});
+
+describe("stageFor — count-scaled stage", () => {
+  const sizes = (n: number, side: number) => Array.from({ length: n }, () => side);
+
+  it("clamps to the reference stage for a small frame set", () => {
+    // 10 x 135px frames ≈ 182k px² against 800k — well under target occupancy,
+    // so a small repo keeps exactly today's stage (and today's layout).
+    expect(stageFor(sizes(10, 135))).toEqual({ w: STAGE_W, h: STAGE_H });
+  });
+
+  it("never returns less than the reference stage", () => {
+    expect(stageFor([])).toEqual({ w: STAGE_W, h: STAGE_H });
+    expect(stageFor([10])).toEqual({ w: STAGE_W, h: STAGE_H });
+  });
+
+  it("grows so occupancy lands at the target once the reference saturates", () => {
+    const many = sizes(120, 90);
+    const stage = stageFor(many);
+    const area = many.reduce((s, x) => s + x * x, 0);
+    expect(stage.w).toBeGreaterThan(STAGE_W);
+    expect(area / (stage.w * stage.h)).toBeCloseTo(0.25, 2);
+  });
+
+  it("preserves the reference aspect ratio, so sizes rescale by one factor", () => {
+    const stage = stageFor(sizes(200, 100));
+    expect(stage.w / stage.h).toBeCloseTo(STAGE_W / STAGE_H, 2);
+  });
+
+  it("scales with total AREA, not frame count", () => {
+    // Four 50px frames occupy the same area as one 100px frame.
+    expect(stageFor(sizes(4, 50))).toEqual(stageFor([100]));
+  });
+
+  it("is deterministic and order-independent (shared state → same stage)", () => {
+    const a = [110, 160, 84, 84, 130];
+    expect(stageFor(a)).toEqual(stageFor([...a].reverse()));
+  });
+});
+
+describe("layoutFrames — scaled stage + explicit sizes", () => {
+  const mk = (n: number): LayoutInputFrame[] =>
+    Array.from({ length: n }, (_, i) => ({
+      frame_id: i, frame_label: `f${i}`, member_count: 5 + (i % 7),
+      size: i % 4 === 0 ? 140 : 84, sink: (i % 10) / 10,
+    }));
+
+  it("honours an explicit per-frame size over the member-count band", () => {
+    const out = layoutFrames(mk(8), [], stageFor(mk(8).map((f) => f.size!)));
+    for (const f of out) expect([140, 84]).toContain(f.w);
+  });
+
+  it("keeps every frame inside the scaled stage", () => {
+    const frames = mk(120);
+    const stage = stageFor(frames.map((f) => f.size!));
+    for (const f of layoutFrames(frames, [], stage)) {
+      expect(f.x - f.w / 2).toBeGreaterThanOrEqual(0);
+      expect(f.y - f.h / 2).toBeGreaterThanOrEqual(0);
+      expect(f.x + f.w / 2).toBeLessThanOrEqual(stage.w);
+      expect(f.y + f.h / 2).toBeLessThanOrEqual(stage.h);
+    }
+  });
+
+  it("separates 120 frames on a scaled stage (sub-px rounding slack only)", () => {
+    const frames = mk(120);
+    const out = layoutFrames(frames, [], stageFor(frames.map((f) => f.size!)));
+    for (let a = 0; a < out.length; a++) {
+      for (let b = a + 1; b < out.length; b++) {
+        const ox = (out[a].w + out[b].w) / 2 - Math.abs(out[a].x - out[b].x);
+        const oy = (out[a].h + out[b].h) / 2 - Math.abs(out[a].y - out[b].y);
+        // Integer centers against possibly-odd widths leave at most 1px; the
+        // hard invariant is that nothing genuinely stacks.
+        expect(Math.min(ox, oy)).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+
+  it("gives every frame a distinct position (no 1-D collapse)", () => {
+    const frames = mk(120);
+    const out = layoutFrames(frames, [], stageFor(frames.map((f) => f.size!)));
+    expect(new Set(out.map((f) => `${f.x},${f.y}`)).size).toBe(out.length);
+  });
+
+  it("is deterministic on a scaled stage", () => {
+    const frames = mk(60);
+    const stage = stageFor(frames.map((f) => f.size!));
+    expect(layoutFrames(frames, [], stage)).toEqual(layoutFrames(frames, [], stage));
+  });
+
+  it("centers the cloud on BOTH axes in the stratify path (D-vmhy)", () => {
+    const frames = mk(40);
+    const stage = stageFor(frames.map((f) => f.size!));
+    const out = layoutFrames(frames, [], stage);
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const f of out) {
+      minX = Math.min(minX, f.x - f.w / 2); maxX = Math.max(maxX, f.x + f.w / 2);
+      minY = Math.min(minY, f.y - f.h / 2); maxY = Math.max(maxY, f.y + f.h / 2);
+    }
+    expect(Math.abs((minX + maxX) / 2 - stage.w / 2)).toBeLessThanOrEqual(1);
+    expect(Math.abs((minY + maxY) / 2 - stage.h / 2)).toBeLessThanOrEqual(1);
   });
 });
