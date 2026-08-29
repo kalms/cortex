@@ -3,6 +3,7 @@ import { createLiveEffects } from './live-effects.js';
 import { createPresence, PRESENCE_COLORS } from './presence.js';
 import { createCamera, compose, zoomAt, panBy, settleTarget, isIdentity, lerpCamera, MAX_ZOOM } from './camera.js';
 import { dotBudget, labelAlpha, shedAlpha, applyHysteresis, interEdgeZoomFade, quantizeAlpha } from './lod.js';
+import { captureGeometry, beginMorph, morphGeom, morphActive } from './layout-morph.js';
 
 // ── Layer lens (taxonomy milestone 1). Palette softened ~20% toward
 // neutral; values pinned by the approved design spec. Off = the exact
@@ -33,9 +34,13 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
   // #fafafa page was invisible, which read as "frames are missing" in light mode.
   function frameFillRGB()         { return isLight() ? [24, 24, 27]    : [14, 14, 17]; }
   function nodeBaseRGB()          { return isLight() ? [82, 82, 91]    : [113, 113, 122]; }
-  // Edges get their own ink: light mode uses a mid gray (pure black at the
-  // frame-border alphas made the edge web dominate the scene).
-  function edgeRGB()              { return isLight() ? [113, 113, 122] : [255, 255, 255]; }
+  // Edges get their own ink: light mode stays off pure black (at the
+  // frame-border alphas, black made the edge web dominate the scene) but must
+  // be dark enough to register. zinc-500 at the old alphas put a min-weight
+  // inter-frame edge ~7/255 off the #fafafa page — below the threshold where a
+  // 1px line reads at all. zinc-700 roughly doubles that delta while keeping
+  // the web recessive.
+  function edgeRGB()              { return isLight() ? [63, 63, 70]    : [255, 255, 255]; }
   function pillBgRGB()            { return isLight() ? [255, 255, 255] : [17, 18, 27]; }
   function pillBgGreenRGB()       { return isLight() ? [250, 253, 251] : [13, 17, 14]; }
   function pillTextRGB()          { return isLight() ? [24, 24, 27]    : [237, 237, 237]; }
@@ -118,6 +123,12 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
   const FOCUS_DURATION = 550;
   let previousFocusId = null;
 
+  // Layout morph (see layout-morph.js): a re-index recomputes the whole frame
+  // map, so a data swap can move every frame at once. Rather than cutting
+  // between the two layouts, surviving frames glide from old to new. Null when
+  // idle, and every draw path is pixel-identical to pre-morph when it is.
+  let layoutMorph = null;
+
   // Held show-focus spotlight (slice 2a). Null = inert (every draw path must be
   // pixel-identical to pre-spotlight when null). When active:
   //   { frameSet, decSet, todoSet: Set<string>, t0 } — t0 anchors the dim ease.
@@ -165,6 +176,11 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
    *  the in-canvas graph. This is the assignment tail of the old loadGraph —
    *  fetching/adapting now happens in React; the engine only owns render state. */
   function setData(bundle, { preserveFocus = false } = {}) {
+    // Capture the outgoing layout BEFORE the swap so a re-index glides into its
+    // new positions instead of cutting. beginMorph returns null for a first
+    // load, a no-op resync, or reduced motion — all of which should snap.
+    layoutMorph = beginMorph(captureGeometry(FRAMES), bundle.frames, performance.now(), { reducedMotion });
+
     FRAMES = bundle.frames;
     frameById = new Map(FRAMES.map((f) => [f.id, f]));
     NODE_CFG = bundle.nodeCfg;
@@ -658,7 +674,11 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     const stageH = canvas.clientHeight || 1;
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     let sw = 0, scx = 0, scy = 0; // area-weighted centroid accumulators
-    for (const f of FRAMES) {
+    // Measured on the MORPHING geometry: during a re-index glide the fit has to
+    // travel with the frames, or the scene would rescale instantly under frames
+    // that are still moving — two competing motions instead of one.
+    for (const fr of FRAMES) {
+      const f = frameGeom(fr);
       const cx = f.x * stageW, cy = f.y * stageH, hw = f.w / 2, hh = f.h / 2;
       if (cx - hw < minX) minX = cx - hw;
       if (cx + hw > maxX) maxX = cx + hw;
@@ -687,18 +707,26 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     return { scale, ox: stageW / 2 - cenX * scale, oy: bandCy - cenY * scale };
   }
 
+  /** Frame geometry in normalized stage space, mid-morph-aware — an ease between
+   *  the frame's old and new stage coords while a re-index morph runs, and the
+   *  frame's own values otherwise. */
+  function frameGeom(frame, now = performance.now()) {
+    return morphGeom(layoutMorph, frame, now, ease);
+  }
+
   function framePxBase(frame) {
     const stageW = canvas.clientWidth;
     const stageH = canvas.clientHeight;
     const v = viewTransform;
+    const g = frameGeom(frame);
     // Map the virtual-stage fraction to raw canvas px, then apply the
     // fit-to-content transform (centers the scene; clamping is unnecessary —
     // the transform already keeps all content within the padded canvas).
     return {
-      cx: (frame.x * stageW) * v.scale + v.ox,
-      cy: (frame.y * stageH) * v.scale + v.oy,
-      w: frame.w * v.scale,
-      h: frame.h * v.scale,
+      cx: (g.x * stageW) * v.scale + v.ox,
+      cy: (g.y * stageH) * v.scale + v.oy,
+      w: g.w * v.scale,
+      h: g.h * v.scale,
     };
   }
 
@@ -714,8 +742,9 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     // every tick with compose(fit, camera). Measuring through it would fit against
     // already-panned/zoomed screen px, compounding on every non-identity camera.
     const v = computeViewTransform();
-    for (const f of FRAMES) {
-      if (!ids.has(String(f.id))) continue;
+    for (const fr of FRAMES) {
+      if (!ids.has(String(fr.id))) continue;
+      const f = frameGeom(fr); // morph-aware, so a spotlight mid-glide still frames what's on screen
       const cx = (f.x * stageW) * v.scale + v.ox;
       const cy = (f.y * stageH) * v.scale + v.oy;
       const w = f.w * v.scale, h = f.h * v.scale;
@@ -745,7 +774,25 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       return { cx: cxCanvas, cy: cyCanvas, w: targetW, h: targetH };
     }
 
-    const base = framePxBase(frame);
+    return displacedByFocus(framePxBase(frame), frame.w, frame.h, focusedId);
+  }
+
+  /** Where a NON-focused item sits while `focusedId` is open: pushed radially
+   *  outward from the canvas centre to clear the focused card, and compressed.
+   *
+   *  Extracted from framePxFocused so aggregate dots can take the SAME
+   *  displacement. Aggregates previously read only the fit transform, so opening
+   *  a frame slid every frame aside while the aux dots stayed nailed in place —
+   *  ending up on top of the focused card, visually detached from the cloud they
+   *  annotate.
+   *
+   *  `rawW`/`rawH` are the item's uncompressed dims in whatever units the caller
+   *  compresses in (frames have always passed stage-space w/h here). */
+  function displacedByFocus(base, rawW, rawH, focusedId) {
+    const stageW = canvas.clientWidth;
+    const stageH = canvas.clientHeight;
+    const cxCanvas = stageW / 2;
+    const cyCanvas = stageH / 2;
     const dx = base.cx - cxCanvas;
     const dy = base.cy - cyCanvas;
     const dist = Math.hypot(dx, dy) || 1;
@@ -754,6 +801,7 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
 
     const focusedFrame = frameById.get(focusedId);
     if (!focusedFrame) return base;
+    const frame = { w: rawW, h: rawH };
     const focusedW = Math.min(stageW * 0.55, 560);
     const focusedH = Math.min(stageH * 0.55, 360);
 
@@ -763,15 +811,48 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
     const targetDistX = focusedW / 2 + compressedW / 2 + 40;
     const targetDistY = focusedH / 2 + compressedH / 2 + 30;
 
-    const pushRatio = Math.max(targetDistX / Math.max(Math.abs(dx), 1), targetDistY / Math.max(Math.abs(dy), 1));
-    let newCx = cxCanvas + ux * dist * Math.max(1, pushRatio * 0.9);
-    let newCy = cyCanvas + uy * dist * Math.max(1, pushRatio * 0.9);
+    // Distance along this item's OWN ray at which it clears the focused card:
+    // the first axis the ray crosses bounds it (a near-zero component →
+    // Infinity, so min() picks the other axis). Items already further out stay
+    // where they are.
+    //
+    // This was a max(), which demands clearing BOTH axes at once — unreachable
+    // for a ray near either axis, so those items were flung to tens of thousands
+    // of px and the clamp below pinned them to the canvas edge. Every frame near
+    // a horizontal or vertical from centre landed on that clamp, drawing the
+    // rectangular border seen around an opened frame; the more frames on the
+    // canvas, the more solid that rectangle got. Same failure `pushOutsideCloud`
+    // was already corrected for on the cloud keep-out: a ray exits a box on ONE
+    // axis, and picking the far one flings items into empty space.
+    const tx = Math.abs(ux) > 1e-6 ? targetDistX / Math.abs(ux) : Infinity;
+    const ty = Math.abs(uy) > 1e-6 ? targetDistY / Math.abs(uy) : Infinity;
+    const pushed = Math.max(dist, Math.min(tx, ty));
+    let newCx = cxCanvas + ux * pushed;
+    let newCy = cyCanvas + uy * pushed;
 
     const pad = EDGE_MARGIN;
     newCx = Math.max(compressedW / 2 + pad, Math.min(stageW - compressedW / 2 - pad, newCx));
     newCy = Math.max(compressedH / 2 + pad + LABEL_HEADROOM, Math.min(stageH - compressedH / 2 - pad, newCy));
 
     return { cx: newCx, cy: newCy, w: compressedW, h: compressedH };
+  }
+
+  /** Focus-aware position for an auxiliary dot already mapped to canvas px.
+   *  Mirrors framePx's source→target ease so aux nodes travel with the frames
+   *  instead of staying pinned while the rest of the canvas moves. */
+  function aggregatePx(cx, cy, size) {
+    const fp = computeFocusProgress();
+    const base = { cx, cy, w: size, h: size };
+    if (!fp.focused && !fp.from) return base;
+    const target = fp.focused ? displacedByFocus(base, size, size, fp.focused) : base;
+    const source = fp.from ? displacedByFocus(base, size, size, fp.from) : base;
+    if (fp.t >= 1) return target;
+    return {
+      cx: source.cx + (target.cx - source.cx) * fp.t,
+      cy: source.cy + (target.cy - source.cy) * fp.t,
+      w: source.w + (target.w - source.w) * fp.t,
+      h: source.h + (target.h - source.h) * fp.t,
+    };
   }
 
   const framePxCache = new Map(); // cleared per tick — framePx is pure within one frame
@@ -2315,7 +2396,15 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       const baseAlpha = e.interFrame ? 0.09 : 0.15;
       const wScale = e.weight ? 0.4 + 0.6 * Math.sqrt(e.weight / maxW) : 1;
       const zoomFade = e.interFrame ? interZoomFade : 1;
-      const alpha = baseAlpha * wScale * (isLight() ? 1.4 : 1) * lodMul * zoomFade;
+      // Light mode needs more than a nudge: dark mode draws white on near-black
+      // (the maximum contrast available), so the same alpha buys far less
+      // separation against a #fafafa page. Calibrated with the darker edgeRGB
+      // ink for PARITY with dark mode rather than raw boost — light now reads
+      // 1.099 / 1.521 contrast at min/max edge weight against dark's 1.074 /
+      // 1.509. Pushing further (2.0x measured 1.126 / 1.708) overshoots at the
+      // heavy end and brings back the dominating edge web that put light mode on
+      // a lighter ink in the first place.
+      const alpha = baseAlpha * wScale * (isLight() ? 1.6 : 1) * lodMul * zoomFade;
       const q = quantizeAlpha(alpha);
 
       // Both endpoints alive at once (a and b), so drawEdges gets two scratch
@@ -2729,17 +2818,22 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
       const agg = AGGREGATES[i];
       // Uniform dot size — aggregates are not sized by member_count. Capped so
       // aggregate dots don't balloon past file dots at high zoom.
-      const dotR = Math.min(AGG_DOT_R * v.scale, AGG_DOT_R * 1.6);
+      const baseDotR = Math.min(AGG_DOT_R * v.scale, AGG_DOT_R * 1.6);
       const { nx, ny } = aggregateFraction(agg, i, AGGREGATES.length);
       // Same fit-to-content transform as frames so dots stay anchored to the cloud.
       // Aggregates don't drive the fit (computeViewTransform frames the cloud
       // only), so a dot the keep-out flung far out could map off-canvas — clamp
       // it back on-screen so it stays visible.
-      const rawX = (nx * stageW) * v.scale + v.ox;
-      const rawY = (ny * stageH) * v.scale + v.oy;
+      const fitX = (nx * stageW) * v.scale + v.ox;
+      const fitY = (ny * stageH) * v.scale + v.oy;
+      // ...then the SAME focus displacement the frames take, so opening a frame
+      // moves the aux dots with the rest of the canvas instead of stranding them
+      // over the focused card.
+      const fa = aggregatePx(fitX, fitY, baseDotR * 2);
+      const dotR = fa.w / 2;
       const clampOn = isIdentity(camera) && !camAnim;
-      const cx = clampOn ? Math.max(dotR + 4, Math.min(stageW - dotR - 4, rawX)) : rawX;
-      const cy = clampOn ? Math.max(dotR + 4, Math.min(stageH - dotR - 4, rawY)) : rawY;
+      const cx = clampOn ? Math.max(dotR + 4, Math.min(stageW - dotR - 4, fa.cx)) : fa.cx;
+      const cy = clampOn ? Math.max(dotR + 4, Math.min(stageH - dotR - 4, fa.cy)) : fa.cy;
 
       const isHovered = hoveredAggregateId === agg.id;
       const baseRgb = nodeBaseRGB();
@@ -3080,6 +3174,12 @@ export function createEngine({ canvas, store, callbacks = {}, isLight: isLightFn
   function animating(now) {
     // Camera lerp (setCamera animate / fitToFrames / settle springs).
     if (camAnim) return true;
+    // Layout morph: frames gliding between two index layouts after a re-index.
+    // Self-settling — dropped once past its window so it can't hold the loop hot.
+    if (layoutMorph) {
+      if (morphActive(layoutMorph, now)) return true;
+      layoutMorph = null;
+    }
     // Focus / defocus frame transition.
     if ((focusedFrameId || previousFocusId) && now - focusT0 < FOCUS_DURATION) return true;
     // Record drawer open/close ease.
