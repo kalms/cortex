@@ -17,6 +17,13 @@ export default defineConfig({
       // Survey corpus checkouts under .tmp/frame-extraction/corpus/ carry
       // their own test suites which vitest must not pick up.
       "**/.tmp/**",
+      // Same hazard, second location: the eval harness clones its corpus
+      // targets into evals/cache/<target>/src/. Those are whole third-party
+      // repos — elk, vueuse, trpc — carrying hundreds of their own tests that
+      // fail here for want of their own dependencies. Without this, `npm test`
+      // breaks for anyone who has ever run the corpus, and the breakage looks
+      // like 400 failing files rather than a missing exclusion.
+      "**/evals/cache/**",
     ],
   },
 });
