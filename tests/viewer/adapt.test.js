@@ -66,3 +66,46 @@ describe("adaptProjectData (canvas/adapt.js)", () => {
     expect(b.fileNames["1"]).toHaveLength(40);
   });
 });
+
+describe("adaptProjectData — scaled stage normalization", () => {
+  /** Same scene, expressed on a 2x stage: every server-side coordinate and size
+   *  doubles. The adapter must normalize it back to the reference stage so the
+   *  engine's fixed 1000x800 coordinate space keeps working unchanged. */
+  function scaled(k) {
+    const f = fixture();
+    f.frameMap = {
+      stage: { w: 1000 * k, h: 800 * k },
+      frames: f.frameMap.frames.map((fr) => ({
+        ...fr, x: fr.x * k, y: fr.y * k, w: fr.w * k, h: fr.h * k,
+      })),
+    };
+    f.aggs = { aggregates: f.aggs.aggregates.map((a) => ({ ...a, x: a.x * k, y: a.y * k })) };
+    return f;
+  }
+
+  it("yields identical frame geometry to the reference stage", () => {
+    const ref = adaptProjectData(fixture());
+    const big = adaptProjectData(scaled(2));
+    expect(big.frames.map((f) => [f.id, f.x, f.y, f.w, f.h]))
+      .toEqual(ref.frames.map((f) => [f.id, f.x, f.y, f.w, f.h]));
+  });
+
+  it("rescales aggregate dots too, so they stay on the cloud", () => {
+    const ref = adaptProjectData(fixture());
+    const big = adaptProjectData(scaled(2));
+    expect(big.aggregates.map((a) => [a.x, a.y])).toEqual(ref.aggregates.map((a) => [a.x, a.y]));
+  });
+
+  it("rescales frameMeta sizes in step with the frames", () => {
+    const ref = adaptProjectData(fixture());
+    const big = adaptProjectData(scaled(2));
+    expect([...big.frameMeta].map(([id, m]) => [id, m.w, m.h]))
+      .toEqual([...ref.frameMeta].map(([id, m]) => [id, m.w, m.h]));
+  });
+
+  it("leaves an aggregate with no position untouched", () => {
+    const f = scaled(2);
+    f.aggs = { aggregates: [{ id: "agg1", label: "aux", member_count: 3 }] };
+    expect(adaptProjectData(f).aggregates[0]).toEqual({ id: "agg1", label: "aux", member_count: 3 });
+  });
+});
