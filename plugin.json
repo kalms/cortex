@@ -1,7 +1,7 @@
 {
   "name": "cortex",
-  "version": "2.2.2",
-  "description": "Knowledge graph MCP server with decision provenance — code indexing, architectural decisions, graph-enriched search, and 2D frames viewer",
+  "version": "2.3.0",
+  "description": "Knowledge graph MCP server with decision provenance \u2014 code indexing, architectural decisions, graph-enriched search, and 2D frames viewer",
   "author": {
     "name": "ruevu",
     "url": "https://github.com/ruevu"

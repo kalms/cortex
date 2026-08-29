@@ -18,6 +18,67 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [2.3.0] — 2026-08-24
+
+Adds language-agnostic indexing-quality metrics to the eval harness. Before
+this, `evals/` could only answer "is Nuxt extraction still right?" on four Nuxt
+targets. It can now answer "did indexing get worse on THIS repo?" for any
+repository in any language, against a 17-repo multi-language corpus.
+
+The design turns on one constraint: a universal metric has **no** meaningful
+fixed threshold. 40% call attribution may be terrible for one language and
+expected for another, so "is this number good?" is unanswerable. Only "did it
+move the wrong way against this repo's own baseline?" can be asked — so
+universal metrics carry no predicate at all, and their verdict comes solely
+from a ratchet against that repo's recorded baseline.
+
+**Proven, not asserted.** The metrics were measured across a pair of indexer
+builds differing by a known fix (0.3.2, which attributes calls nested in
+function bodies, vs 0.3.1, which does not). Removing the fix drove
+`file_sourced_calls` from 0 to 563 on trpc, 233 on vueuse and 53 on elk, with
+attribution rates falling 5-18 points — every one flagged as a regression.
+
+### Added
+
+- **Six universal metrics** (`evals/src/assertions/universal.ts`):
+  `file_sourced_calls`, `call_attribution_rate`, `qn_collisions`,
+  `orphan_definition_rate`, `per_language_function_density`, and an opt-in
+  determinism check.
+- **Ratchet comparison** (`evals/src/assertions/ratchet.ts`,
+  `verdicts.ts`): a metric fails only when it moves the wrong way against its
+  own baseline by more than epsilon — 0.5 percentage points for the two
+  percentage metrics, exact for counts, and **proportional (10% of that
+  language's own baseline)** for per-language density, whose magnitude varies
+  too much for any fixed tolerance.
+- **A 17-repo multi-language corpus** behind `--suite=corpus` (Go, Python,
+  Ruby, Rust, Java, C++, PHP, C, Swift, C#, Kotlin, TypeScript). The default
+  `npm run eval` is unchanged.
+- **`--determinism`**: index a repo twice and compare graph shape.
+  `SEMANTICALLY_RELATED` is excluded as known-nondeterministic.
+- **`--accept-improvements`**: adopt ratchet-confirmed gains into baselines.
+  Adoption is never automatic — a normal run never rewrites its own reference,
+  and only metrics the ratchet confirmed as improved are written.
+- Baselines for `elk`, `vueuse`, `trpc` and `nuxthub-starter`, captured on
+  indexer 0.3.2.
+
+### Changed
+
+- `Assertion.predicate` is now optional and `AssertionResult.passed` is
+  `boolean | null`, where `null` means **not judged**. An unmeasurable metric
+  (a rate over zero rows) surfaces as `observed: null` and a `not_measured`
+  outcome rather than being coerced to a number — on a lower-is-better metric
+  a bogus low value reads as excellent and could be adopted as an improvement.
+- Assertions are scoped into packs (`universal` / `nuxt`) and selected per
+  target, so ecosystem-specific and portable checks coexist in one runner.
+
+### Fixed
+
+- `vitest` no longer collects the eval harness's corpus checkouts under
+  `evals/cache/`. Those are whole third-party repositories carrying their own
+  test suites, which fail for want of their own dependencies — so after a
+  corpus run, `npm test` reported 400 failing files that had nothing to do
+  with this project.
+
 ## [2.2.2] — 2026-08-29
 
 Closes the last open bullet of the git-provenance spec's read surface (B3):
@@ -2429,6 +2490,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[2.3.0]: https://github.com/ruevu/cortex/releases/tag/v2.3.0
 [2.2.2]: https://github.com/ruevu/cortex/releases/tag/v2.2.2
 [2.2.1]: https://github.com/ruevu/cortex/releases/tag/v2.2.1
 [2.2.0]: https://github.com/ruevu/cortex/releases/tag/v2.2.0
