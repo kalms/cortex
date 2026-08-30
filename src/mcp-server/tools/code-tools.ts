@@ -380,12 +380,20 @@ export function registerCodeTools(
               }
             }
 
+            // `readCacheEntry` re-checks that the entry declares THIS repo's
+            // identity and answers false if it does not, so a rejected entry
+            // falls through to a real index rather than publishing a stranger's
+            // graph. Ignoring that answer is why the 2026-08-30 mislabel was
+            // silent: the import reported success, and only the store knew.
+            let servedFromCache = false;
             if (cacheKey && hasCacheEntry(cacheKey)) {
               // Import the cached snapshot INTO staging, never directly onto the
               // live db. withFrames will run passes against staging and then
               // publish to dbPath atomically.
               mkdirSync(dirname(stagePath), { recursive: true });
-              readCacheEntry(cacheKey, stagePath);
+              servedFromCache = readCacheEntry(cacheKey, stagePath, repoPath);
+            }
+            if (servedFromCache && cacheKey) {
               const out = await withFrames(`imported from cache key ${cacheKey.slice(0, 12)}…`, repoPath, stagePath, dbPath);
               runStalenessSweep(repoPath, dbPath); // before captureIndexMeta — see run-sweep.ts
               captureIndexMeta(dbPath, repoPath);
