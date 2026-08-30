@@ -100,19 +100,13 @@ report to `evals/reports/<timestamp>/`. That flow is informed by the
     npm run eval -- --accept-improvements          # adopt confirmed gains
     npm run eval -- --determinism                  # index twice, compare shape
 
-Baselines are committed for `elk`, `nuxthub-starter`, `open-pencil`, `trpc` and
-`vueuse`, all captured on indexer 0.3.2. The remaining corpus targets have none
-yet: they report `(no baseline)` until someone captures one, which is the honest
-state rather than a failure.
-
-Two known gaps, neither blocking:
-
-- **`nuxt-ui` is pinned to a branch that no longer exists.** Its `sha` is
-  `main`, but nuxt/ui's default branch is now `v4`. A default-suite run fails on
-  that target until it is repinned.
-- **Universal metrics are unmeasured on 17 of 21 targets.** A corpus run takes
-  hours (clone + full index each), so the corpus is opt-in and its baselines are
-  captured deliberately rather than on every run.
+Baselines are committed for all four default targets — `nuxt-ui`,
+`nuxthub-starter`, `elk` and `open-pencil` — plus `trpc` and `vueuse`, all
+captured on indexer 0.3.2. The remaining seventeen corpus targets have none yet:
+they report `(no baseline)` until someone captures one, which is the honest
+state rather than a failure. A corpus run takes hours (clone + full index each),
+so the corpus is opt-in and its baselines are captured deliberately rather than
+on every run.
 
 ## Why the killer queries look the way they do
 

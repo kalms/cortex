@@ -58,8 +58,8 @@ attribution rates falling 5-18 points — every one flagged as a regression.
 - **`--accept-improvements`**: adopt ratchet-confirmed gains into baselines.
   Adoption is never automatic — a normal run never rewrites its own reference,
   and only metrics the ratchet confirmed as improved are written.
-- Baselines for `elk`, `vueuse`, `trpc`, `nuxthub-starter` and `open-pencil`,
-  captured on indexer 0.3.2.
+- Baselines for all four default targets (`nuxt-ui`, `nuxthub-starter`, `elk`,
+  `open-pencil`) plus `trpc` and `vueuse`, captured on indexer 0.3.2.
 
 ### Changed
 
@@ -78,6 +78,9 @@ attribution rates falling 5-18 points — every one flagged as a regression.
   large-real-world-application role from a public URL, and runs the `universal`
   pack only — it is not a Nuxt app, and the Nuxt assertions would measure zero
   against it. `targets.json` now carries no absolute paths at all.
+- **`nuxt-ui` is repinned from `main` to `v4`.** Upstream deleted `main` when
+  v4 became the default branch, so the clone failed and the default suite could
+  not complete. All eight of its ecosystem assertions pass on v4.
 
 ### Fixed
 

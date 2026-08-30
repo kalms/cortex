@@ -3,8 +3,8 @@
     {
       "name": "nuxt-ui",
       "repo_url": "https://github.com/nuxt/ui.git",
-      "sha": "main",
-      "default_branch": "main",
+      "sha": "v4",
+      "default_branch": "v4",
       "packs": ["universal", "nuxt"],
       "suites": ["nuxt", "corpus"]
     },
