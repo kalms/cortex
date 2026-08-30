@@ -23,14 +23,50 @@ import {
 } from "d3-force";
 import type { FramePairWeight } from "./frame-pair-rollup.js";
 
-/** Fixed virtual coordinate space. The viewer normalizes by these. */
+/** Reference virtual coordinate space. The viewer normalizes positions by the
+ *  stage the server actually used (returned on the frame map) and rescales sizes
+ *  back to THIS reference — so growing the stage is a layout-resolution decision
+ *  and never changes what the viewer draws per unit of stage. */
 export const STAGE_W = 1000;
 export const STAGE_H = 800;
+
+export interface Stage { w: number; h: number; }
+export const REFERENCE_STAGE: Stage = { w: STAGE_W, h: STAGE_H };
+
+/** Ratio of total frame area to stage area the layout aims for. The reference
+ *  10-frame layout settles at ~0.24 and reads well, so hold occupancy there as
+ *  the frame count grows rather than letting a fixed stage saturate — past ~0.5
+ *  the collision solver stops finding free space and frames jam into whatever
+ *  bands remain. */
+const TARGET_OCCUPANCY = 0.25;
+
+/**
+ * Smallest stage holding `sizes` at TARGET_OCCUPANCY, scaled uniformly from the
+ * reference stage so the aspect ratio is preserved (the viewer rescales sizes by
+ * a single factor). Never smaller than the reference, so small repos keep
+ * exactly today's stage and today's layout.
+ *
+ * PURE and deterministic: a function of the frame sizes alone — shared state, so
+ * every viewer computes the same stage. Deliberately NOT viewport-derived: the
+ * stage is the shared coordinate space, and keying it to the viewport would give
+ * two users on different monitors different maps (spec §8.6 shared truth). The
+ * viewport is handled downstream, in the viewer's fit transform.
+ */
+export function stageFor(sizes: readonly number[]): Stage {
+  let area = 0;
+  for (const s of sizes) area += s * s;
+  const k = Math.max(1, Math.sqrt(area / TARGET_OCCUPANCY / (STAGE_W * STAGE_H)));
+  return { w: Math.round(STAGE_W * k), h: Math.round(STAGE_H * k) };
+}
 
 export interface LayoutInputFrame {
   frame_id: number;
   frame_label: string;
   member_count: number;
+  /** Explicit frame side (px). Omitted → the member-count sqrt band (the
+   *  pre-change behaviour). Supplied when frame size carries emphasis rather
+   *  than raw member count. */
+  size?: number;
   /** Effective sink ratio in [0,1] (surface 0 → substrate 1). When present on
    *  ANY frame, the vertical stratification force is applied; omitted on EVERY
    *  frame (default) → layout takes the exact pre-slice forceCenter path
@@ -59,32 +95,57 @@ export function seedFromFrames(frames: readonly LayoutInputFrame[]): number {
   return createHash("sha256").update(rec).digest().readUInt32BE(0) >>> 0;
 }
 
-/** Frame size band (px), mapped from member_count via sqrt. */
+/** Frame size band (px), mapped from member_count via sqrt. Sized for the
+ *  ambient-only layout, where the band spans ~10 frames of similar magnitude. */
 const FRAME_MIN = 110;
 const FRAME_MAX = 160;
+/** Frame size band for the full-sim layout. Much wider than the ambient band
+ *  because a whole-repo map carries the whole member-count spread (openpencil:
+ *  5–74 members, ~15x) and the narrow band flattens it to visual noise — a
+ *  74-member frame rendered the same as a 5-member one. The extra range is
+ *  affordable because `stageFor` grows the stage with total frame area, so a
+ *  wider band buys space rather than crowding. */
+export const FULL_FRAME_MIN = 70;
+export const FULL_FRAME_MAX = 220;
 /** Fixed iteration count — no convergence check, for cross-run determinism. */
 const ITERATIONS = 300;
 /** Padding added to each frame's collision radius (px). */
 const COLLIDE_PAD = 10;
 /** Extra collision-only ticks after the main sim to enforce non-overlap. */
 const RELAX_ITERATIONS = 120;
-/** Vertical band the stratification force targets (px), inside stage margins. */
-const TOP_Y = STAGE_H * 0.14;     // 112
-const BOTTOM_Y = STAGE_H * 0.86;  // 688
+/** Vertical band the stratification force targets, as a fraction of stage
+ *  height (0.14–0.86 → 112–688 on the reference stage). Fractions, not absolute
+ *  px, so the bands stretch with a scaled stage instead of stranding every frame
+ *  in the top sliver of a tall one. */
+const TOP_FRAC = 0.14;
+const BOTTOM_FRAC = 0.86;
 /** forceY pull strength — stratifies vertically while the pair-link force still
  *  groups connected frames horizontally. Weak enough that the link spring can
  *  override it for strongly-connected co-layer frames; strong enough to produce
  *  visible stratification within the fixed 300 ticks. */
 const STRENGTH_Y = 0.18;
+/** Decision-governance spring (frame-layout-design.md force 4). The design calls
+ *  it "tertiary", and a literal reading of that — strength ~0.03–0.20 — measured
+ *  as pure noise on the cortex corpus (61 co-governed pairs: 31 pulled closer,
+ *  30 pushed farther, mean distance −0.4%). Charge repulsion and the code-edge
+ *  spring simply swamp it. These values are calibrated to move the pairs the
+ *  force EXISTS for — the ones with no code edge — while staying below the code
+ *  spring (0.1–0.9) so the call graph still owns the layout's primary structure. */
+const GOV_STRENGTH = 0.12;
+const GOV_STRENGTH_SPAN = 0.38;
+const GOV_DISTANCE = 240;
+const GOV_DISTANCE_SPAN = 120;
 /** Horizontal recentre strength (stratify path only) — replaces forceCenter's
  *  vertical pull; weak so it nudges the cloud to mid-stage on x without
  *  clustering unlinked frames. */
 const STRENGTH_X = 0.05;
 
-/** Target y for a frame from its sink ratio (clamped to [0,1]). */
-function yTargetFor(sink: number): number {
+/** Target y for a frame from its sink ratio (clamped to [0,1]), in the given
+ *  stage's band. */
+function yTargetFor(sink: number, stageH: number): number {
   const s = Math.max(0, Math.min(1, sink));
-  return TOP_Y + s * (BOTTOM_Y - TOP_Y);
+  const top = stageH * TOP_FRAC, bottom = stageH * BOTTOM_FRAC;
+  return top + s * (bottom - top);
 }
 
 export interface PositionedFrame {
@@ -111,10 +172,13 @@ interface SimNode extends SimulationNodeDatum {
 
 /** sqrt-bounded size in the [FRAME_MIN, FRAME_MAX] band. Degenerate (all equal
  *  counts, or a single frame) → band midpoint. */
-function sizeFor(count: number, minC: number, maxC: number): number {
-  if (maxC <= minC) return (FRAME_MIN + FRAME_MAX) / 2;
+export function sizeFor(
+  count: number, minC: number, maxC: number,
+  lo: number = FRAME_MIN, hi: number = FRAME_MAX,
+): number {
+  if (maxC <= minC) return (lo + hi) / 2;
   const t = (Math.sqrt(count) - Math.sqrt(minC)) / (Math.sqrt(maxC) - Math.sqrt(minC));
-  return FRAME_MIN + t * (FRAME_MAX - FRAME_MIN);
+  return lo + t * (hi - lo);
 }
 
 /**
@@ -128,9 +192,12 @@ function sizeFor(count: number, minC: number, maxC: number): number {
 export function layoutFrames(
   frames: readonly LayoutInputFrame[],
   pairs: readonly FramePairWeight[],
+  stage: Stage = REFERENCE_STAGE,
+  governance: readonly FramePairWeight[] = [],
 ): PositionedFrame[] {
   if (frames.length === 0) return [];
 
+  const stageW = stage.w, stageH = stage.h;
   const counts = frames.map((f) => f.member_count);
   const minC = Math.min(...counts);
   const maxC = Math.max(...counts);
@@ -141,12 +208,12 @@ export function layoutFrames(
     id: f.frame_id,
     name: f.frame_label,
     count: f.member_count,
-    size: sizeFor(f.member_count, minC, maxC),
+    size: f.size ?? sizeFor(f.member_count, minC, maxC),
     mass: maxC <= minC ? 0.5 : (f.member_count - minC) / (maxC - minC),
     sink: f.sink ?? 0.5,
     // Deterministic initial scatter around the center.
-    x: STAGE_W / 2 + (init() - 0.5) * STAGE_W * 0.5,
-    y: STAGE_H / 2 + (init() - 0.5) * STAGE_H * 0.5,
+    x: stageW / 2 + (init() - 0.5) * stageW * 0.5,
+    y: stageH / 2 + (init() - 0.5) * stageH * 0.5,
   }));
 
   const present = new Set(nodes.map((n) => n.id));
@@ -154,6 +221,12 @@ export function layoutFrames(
     .filter((p) => present.has(p.a) && present.has(p.b))
     .map((p) => ({ source: p.a, target: p.b, weight: p.weight }));
   const maxW = Math.max(1, ...links.map((l) => l.weight));
+  // Governance links get their OWN array — d3's forceLink mutates `source`/
+  // `target` in place when it resolves ids, so two forces must never share one.
+  const govLinks = governance
+    .filter((p) => present.has(p.a) && present.has(p.b))
+    .map((p) => ({ source: p.a, target: p.b, weight: p.weight }));
+  const maxG = Math.max(1, ...govLinks.map((l) => l.weight));
 
   // Stratify when the caller attached sink data (the CORTEX_LAYER_LAYOUT gate is
   // read at the call site, not here — this module stays layer-agnostic).
@@ -168,10 +241,10 @@ export function layoutFrames(
     // Vertical axis owned by the sink force; centering becomes horizontal-only so
     // forceCenter's mean-recentering doesn't fight the vertical distribution.
     sim
-      .force("x", forceX<SimNode>(STAGE_W / 2).strength(STRENGTH_X))
-      .force("y", forceY<SimNode>((d) => yTargetFor(d.sink)).strength(STRENGTH_Y));
+      .force("x", forceX<SimNode>(stageW / 2).strength(STRENGTH_X))
+      .force("y", forceY<SimNode>((d) => yTargetFor(d.sink, stageH)).strength(STRENGTH_Y));
   } else {
-    sim.force("center", forceCenter(STAGE_W / 2, STAGE_H / 2));
+    sim.force("center", forceCenter(stageW / 2, stageH / 2));
   }
 
   sim
@@ -183,8 +256,29 @@ export function layoutFrames(
         .distance((l) => 220 - 150 * (l.weight / maxW))
         .strength((l) => 0.1 + 0.8 * (l.weight / maxW)),
     )
-    .force("collide", forceCollide<SimNode>((d) => d.size / 2 + COLLIDE_PAD).strength(1).iterations(4))
-    .stop();
+    .force("collide", forceCollide<SimNode>((d) => d.size / 2 + COLLIDE_PAD).strength(1).iterations(4));
+
+  // Decision-governance force (the sixth force in frame-layout-design.md's table,
+  // and the last one still unimplemented): frames sharing a governing decision
+  // attract. Without it, co-governed frames cluster only by accident of their
+  // code edges, so a decision's pills scatter across the map and the governance
+  // relation is unreadable — the wider the layout spreads, the worse it gets.
+  //
+  // Deliberately TERTIARY, per the design: weaker and longer than the code-edge
+  // spring, so it biases placement without overriding the call graph. Inert when
+  // no governance is supplied (default), keeping every existing caller
+  // byte-identical.
+  if (govLinks.length > 0) {
+    sim.force(
+      "governance",
+      forceLink<SimNode, (typeof govLinks)[number]>(govLinks)
+        .id((d) => d.id)
+        .distance((l) => GOV_DISTANCE - GOV_DISTANCE_SPAN * (l.weight / maxG))
+        .strength((l) => GOV_STRENGTH + GOV_STRENGTH_SPAN * (l.weight / maxG)),
+    );
+  }
+
+  sim.stop();
 
   for (let i = 0; i < ITERATIONS; i++) {
     sim.tick();
@@ -208,7 +302,7 @@ export function layoutFrames(
   // along the axis of lesser penetration (minimum separation vector), splitting
   // the correction 50/50. RELAX_ITERATIONS sweeps guarantee convergence for any
   // realistic frame count. The pass is purely positional and references no PRNG.
-  sim.force("link", null).force("charge", null);
+  sim.force("link", null).force("charge", null).force("governance", null);
   for (let i = 0; i < RELAX_ITERATIONS; i++) {
     sim.tick();
     // Direct AABB separation — resolves residual rectangular overlap that the
@@ -241,24 +335,33 @@ export function layoutFrames(
     }
   }
 
-  // Horizontal recenter (stratify path only). The stratify path replaces
-  // forceCenter (which recenters the cloud's mean every tick) with a weak
-  // forceX, which pulls each node toward mid-stage but does NOT recenter the
-  // mean — so the equilibrium can settle off-center and read as a left/right
-  // "lean". Translate every node on x so the frame bounding box is centered on
-  // the stage. Deterministic (a pure positional shift), and applied ONLY when
-  // stratifying so the non-stratify path stays byte-identical to pre-slice
-  // output (its forceCenter already centers the cloud). Y is left to the
-  // sink-driven stratification bands (symmetric about mid-stage by construction).
+  // Recenter on BOTH axes (stratify path only) — D-vmhy. The stratify path
+  // replaces forceCenter (which recenters the cloud's mean every tick) with a
+  // weak forceX plus a sink-targeted forceY. Neither pins the MEAN, so the
+  // link/charge equilibrium drifts the whole cloud off-center on both axes: a
+  // left/right lean on x, and on y a drift that tracks link structure rather
+  // than the layer mix. Translate every node so the frame bounding box is
+  // centered on the stage. Deterministic (a pure positional shift), and applied
+  // ONLY when stratifying so the non-stratify path stays byte-identical to
+  // pre-slice output (its forceCenter already centers the cloud).
+  //
+  // The y half closes T-whyh: D-vmhy was corrected to recenter both axes after
+  // anthill-cloud (surface-heavy yet leaning DOWN) disproved the earlier claim
+  // that the sink bands leave y "symmetric by construction". A uniform translate
+  // preserves the relative top→bottom depth ordering; only the absolute vertical
+  // offset is lost, and that signal is already dominated by the link springs.
   if (stratify && nodes.length > 0) {
-    let minX = Infinity, maxX = -Infinity;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     for (const n of nodes) {
       const h = n.size / 2;
       minX = Math.min(minX, (n.x ?? 0) - h);
       maxX = Math.max(maxX, (n.x ?? 0) + h);
+      minY = Math.min(minY, (n.y ?? 0) - h);
+      maxY = Math.max(maxY, (n.y ?? 0) + h);
     }
-    const dx = STAGE_W / 2 - (minX + maxX) / 2;
-    for (const n of nodes) n.x = (n.x ?? 0) + dx;
+    const dx = stageW / 2 - (minX + maxX) / 2;
+    const dy = stageH / 2 - (minY + maxY) / 2;
+    for (const n of nodes) { n.x = (n.x ?? 0) + dx; n.y = (n.y ?? 0) + dy; }
   }
 
   return nodes
@@ -272,8 +375,8 @@ export function layoutFrames(
       // fractional w/2, x must stay ≤ STAGE - ceil(w/2) (and ≥ ceil(w/2)) to
       // keep both edges inside. floor(w/2) would leave a 0.5px overhang.
       const half = Math.ceil(w / 2);
-      const x = Math.round(Math.min(STAGE_W - half, Math.max(half, n.x ?? STAGE_W / 2)));
-      const y = Math.round(Math.min(STAGE_H - half, Math.max(half, n.y ?? STAGE_H / 2)));
+      const x = Math.round(Math.min(stageW - half, Math.max(half, n.x ?? stageW / 2)));
+      const y = Math.round(Math.min(stageH - half, Math.max(half, n.y ?? stageH / 2)));
       return { id: n.id, name: n.name, count: n.count, x, y, w, h };
     });
 }

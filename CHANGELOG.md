@@ -86,6 +86,89 @@ attribution rates falling 5-18 points — every one flagged as a regression.
   test suites, which fail for want of their own dependencies — so after a
   corpus run, `npm test` reported 400 failing files that had nothing to do
   with this project.
+## [2.2.3] — 2026-08-29
+
+Reworks the frame map's layout for large repositories. On a 120-frame index it
+read as a narrow, bottom-heavy column using a fraction of the viewport; the map
+now fills a stage sized to the repo, and re-indexing animates between layouts
+instead of cutting.
+
+### Added
+
+- **The stage scales with frame count.** `stageFor()` sizes it from total frame
+  area at a 25% target occupancy, floored at the reference 1000x800. It was
+  fixed at the reference size regardless of how many frames it held, so a large
+  repo was laid out in the space sized for ten and clamped together. The stage
+  is a function of the frame set only — never the viewport — so the determinism
+  contract holds unchanged: the same index yields the same map for every viewer,
+  at any window size.
+
+- **Every frame goes through the force simulation** (`applyFullSim`).
+  `ambientBudget` caps the simulation at ten frames; the rest took the satellite
+  path, which places on a perimeter — a 1-D curve, which is why frames landed at
+  near-identical lateral positions. That cap was editorial rather than
+  performance-driven (a full simulation over 120 frames measures ~170ms), and
+  `frame-layout-design.md` already resolves "no hard cap". Ambient becomes an
+  *emphasis* flag rather than a synonym for "has a position".
+
+- **A tertiary governance force** (`governance-rollup.ts`) pulls frames sharing a
+  governing decision together — layout force 4 in the design's table, and the one
+  force never implemented. Frame extraction still has no dependency on the
+  decisions store: `api.ts` loads governance and injects opaque refs into
+  `buildFrameMap`, which stays pure. Amends **D-bj3n**, whose "position is
+  governance-blind" clause this contradicts.
+
+- **Layouts morph on re-index** (`layout-morph.js`). Re-indexing swapped one
+  layout for another between frames; the old geometry now eases into the new over
+  900ms, honouring `prefers-reduced-motion`.
+
+### Changed
+
+- **Frame size tracks `member_count` across all frames**, over a widened 70–220
+  band, instead of tracking the ambient cut. Size was doing double duty as
+  emphasis, which discarded member count below the cut and could invert it — a
+  74-member frame drawn at 84px beside a 6-member frame at 110px. Emphasis keeps
+  its own channel (opacity). Distinct sizes on a 120-frame index: 10 → 28.
+
+- **Recentring corrects both axes.** It was x-only, which is what left the map's
+  mass sitting low; D-vmhy specifies both.
+
+- **Aggregates anchor to every positioned frame**, not just the ambient cut, and
+  inherit the frame map's stage. The ambient filter dates from when only ambient
+  frames had coordinates, so an aggregate tied to a below-the-cut frame had no
+  eligible anchor and fell to the margin — placed nowhere near the thing it
+  relates to.
+
+### Fixed
+
+- **Opening a frame no longer snaps everything into a rectangle.** The focus
+  displacement computed its push as `max(targetDistX/|dx|, targetDistY/|dy|)`,
+  demanding clearance on *both* axes at once; for a ray near horizontal or
+  vertical one component approaches zero and the ratio explodes, so the clamp
+  pinned it to the canvas edge (at 0°, x=66410; at 90°, y=95860 — six of nine
+  sample angles clamped). A ray exits a box on one axis, so this is `min`.
+  `pushOutsideCloud` had already been corrected for the same mistake. The bug
+  predates this release but was invisible with ten frames on screen.
+
+- **A tie-less aggregate no longer strands below the map.** The margin slot —
+  last resort in D-bj3n's edge→path→margin cascade — measured its gutter from
+  `stage.h`, which sat just under the content at the reference size but left the
+  dot far below it on a scaled stage. It is now measured from the content
+  bounding box. The satellite-path fallback is byte-identical to before.
+
+- **Light-mode edge contrast.** Inter-frame edges drew white ink over a light
+  background, near imperceptible at low weights. Ink is now zinc-700 at a 1.6x
+  alpha, tuned for parity with dark mode rather than maximum boost — a heavier
+  setting brought back the dominating edge web the original alpha comment warns
+  about.
+
+### Notes
+
+- The layout is computed per request in `/api/frames`, so existing indexes pick
+  this up on the next viewer load. **No re-index is required** — but every map
+  will look different, by design.
+- Layout still reseeds wholesale when any member count changes, so the morph
+  animates a larger delta than it needs to. Seed stability is untouched here.
 
 ## [2.2.2] — 2026-08-29
 
@@ -2499,6 +2582,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
 [2.3.0]: https://github.com/ruevu/cortex/releases/tag/v2.3.0
+[2.2.3]: https://github.com/ruevu/cortex/releases/tag/v2.2.3
 [2.2.2]: https://github.com/ruevu/cortex/releases/tag/v2.2.2
 [2.2.1]: https://github.com/ruevu/cortex/releases/tag/v2.2.1
 [2.2.0]: https://github.com/ruevu/cortex/releases/tag/v2.2.0

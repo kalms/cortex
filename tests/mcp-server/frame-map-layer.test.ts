@@ -241,8 +241,11 @@ describe("floating non-ambient frame placement", () => {
     edge("fs3", "fs4", "CALLS"),
   ];
 
-  it("keeps ambient positions and now positions non-ambient frames at satellite size", () => {
-    const map = buildFrameMap(floatNodes, floatEdges);
+  it("keeps ambient positions and positions non-ambient frames at satellite size (D-bj3n path)", () => {
+    // The flat 84px satellite size is the D-bj3n contract for the SATELLITE
+    // path. Full-sim retires that path — every frame is simulated and sized by
+    // member count — so this pins the old behaviour under the opt-out.
+    const map = buildFrameMap(floatNodes, floatEdges, { applyFullSim: false });
     const nonAmbient = map.frames.filter((f) => !f.ambient);
     expect(nonAmbient.length).toBeGreaterThan(0); // fixture must produce ≥1 non-ambient frame
     for (const f of nonAmbient) {
@@ -250,6 +253,18 @@ describe("floating non-ambient frame placement", () => {
       expect(f.y).not.toBeNull();
       expect(f.w).toBe(84);
       expect(f.h).toBe(84);
+    }
+  });
+
+  it("under full-sim, non-ambient frames are positioned and sized by member count", () => {
+    const map = buildFrameMap(floatNodes, floatEdges, { applyFullSim: true });
+    const nonAmbient = map.frames.filter((f) => !f.ambient);
+    expect(nonAmbient.length).toBeGreaterThan(0);
+    for (const f of nonAmbient) {
+      expect(f.x).not.toBeNull();
+      expect(f.y).not.toBeNull();
+      expect(f.w).toBe(f.h);
+      expect(f.w).not.toBe(84); // no longer a flat de-emphasis size
     }
   });
 });
@@ -319,5 +334,101 @@ describe("layer-layout gating + stratification", () => {
     expect(json).not.toContain("sink");
     expect(json).not.toContain("fanIn");
     expect(json).not.toContain("fanOut");
+  });
+});
+
+describe("buildFrameMap — full-sim placement", () => {
+  // 40 frames: comfortably past the ambient budget's hard cap of 10, so the
+  // majority would otherwise fall to the satellite path.
+  const bigNodes: NodeRow[] = [];
+  const bigEdges: EdgeRow[] = [];
+  // Varying member counts (2..29) so size — which now tracks member_count — has
+  // a real spread to express. A uniform fixture would make the sizing assertions
+  // vacuous.
+  for (let f = 0; f < 40; f++) {
+    const members = 2 + (f % 10) * 3;
+    for (let m = 0; m < members; m++) {
+      bigNodes.push(fileNode(`bf${f}_${m}`, `src/mod${f}/file${m}.ts`, f, `mod${f}`));
+      bigNodes.push(symNode(`bs${f}_${m}`, `src/mod${f}/file${m}.ts`));
+    }
+  }
+  for (let f = 1; f < 40; f++) bigEdges.push(edge(`bs${f}_0`, `bs${f - 1}_0`, "CALLS"));
+
+  it("positions EVERY frame, not just the ambient set", () => {
+    const map = buildFrameMap(bigNodes, bigEdges, { applyFullSim: true });
+    expect(map.frames.length).toBe(40);
+    expect(map.frames.every((f) => f.x !== null && f.y !== null)).toBe(true);
+    // The ambient cut is still a minority — proving the positions did not come
+    // from the ambient set alone.
+    expect(map.frames.filter((f) => f.ambient).length).toBeLessThan(map.frames.length);
+  });
+
+  it("keeps `ambient` as the emphasis flag, decoupled from having a position", () => {
+    const map = buildFrameMap(bigNodes, bigEdges, { applyFullSim: true });
+    const off = buildFrameMap(bigNodes, bigEdges, { applyFullSim: false });
+    // Same ranker, same cut — full-sim changes placement, never selection.
+    expect(map.frames.filter((f) => f.ambient).map((f) => f.id).sort())
+      .toEqual(off.frames.filter((f) => f.ambient).map((f) => f.id).sort());
+  });
+
+  it("sizes by MEMBER COUNT, monotonically, across every frame", () => {
+    // Size and emphasis are orthogonal channels: size says how much code,
+    // the `ambient` flag says how much narrative weight. Size must therefore
+    // track member_count regardless of which side of the cut a frame is on —
+    // the old emphasis-sizing inverted this, rendering a 74-member frame
+    // smaller than a 6-member one.
+    const map = buildFrameMap(bigNodes, bigEdges, { applyFullSim: true });
+    const byCount = [...map.frames].sort((a, b) => a.count - b.count);
+    for (let i = 1; i < byCount.length; i++) {
+      if (byCount[i].count > byCount[i - 1].count) {
+        expect(byCount[i].w!).toBeGreaterThan(byCount[i - 1].w!);
+      }
+    }
+  });
+
+  it("spreads size over a band wide enough to read", () => {
+    const map = buildFrameMap(bigNodes, bigEdges, { applyFullSim: true });
+    const ws = map.frames.map((f) => f.w!);
+    const spread = Math.max(...ws) / Math.min(...ws);
+    // The old ambient-only band gave 1.0x here (110 frames at one flat size).
+    expect(spread).toBeGreaterThan(1.5);
+  });
+
+  it("scales the stage past the reference and reports it on the map", () => {
+    const map = buildFrameMap(bigNodes, bigEdges, { applyFullSim: true });
+    expect(map.stage.w).toBeGreaterThan(1000);
+    const area = map.frames.reduce((s, f) => s + f.w! * f.h!, 0);
+    expect(area / (map.stage.w * map.stage.h)).toBeLessThan(0.4); // not saturated
+  });
+
+  it("leaves no two frames stacked on the same point", () => {
+    const map = buildFrameMap(bigNodes, bigEdges, { applyFullSim: true });
+    const pts = map.frames.map((f) => `${f.x},${f.y}`);
+    expect(new Set(pts).size).toBe(pts.length);
+  });
+
+  it("is deterministic — byte-identical across runs", () => {
+    const a = JSON.stringify(buildFrameMap(bigNodes, bigEdges, { applyFullSim: true }));
+    const b = JSON.stringify(buildFrameMap(bigNodes, bigEdges, { applyFullSim: true }));
+    expect(a).toBe(b);
+  });
+
+  it("small repos are unaffected — reference stage, layout unchanged", () => {
+    const on = buildFrameMap(nodes, edges, { applyFullSim: true });
+    expect(on.stage).toEqual({ w: 1000, h: 800 });
+  });
+
+  it("CORTEX_FULL_SIM=0 restores the ambient-only layout + satellite path", () => {
+    const prev = process.env.CORTEX_FULL_SIM;
+    process.env.CORTEX_FULL_SIM = "0";
+    try {
+      const envOff = buildFrameMap(bigNodes, bigEdges);
+      const off = buildFrameMap(bigNodes, bigEdges, { applyFullSim: false });
+      expect(JSON.stringify(envOff)).toBe(JSON.stringify(off));
+      expect(envOff.stage).toEqual({ w: 1000, h: 800 });
+    } finally {
+      if (prev === undefined) delete process.env.CORTEX_FULL_SIM;
+      else process.env.CORTEX_FULL_SIM = prev;
+    }
   });
 });

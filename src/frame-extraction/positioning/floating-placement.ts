@@ -6,7 +6,7 @@
  * positions, ties), never on how the ambient positions were produced (the
  * layout-mode extensibility seam).
  */
-import { STAGE_W, STAGE_H } from "./frame-layout.js";
+import { STAGE_W, STAGE_H, REFERENCE_STAGE, type Stage } from "./frame-layout.js";
 import type { FramePairWeight } from "./frame-pair-rollup.js";
 
 /** Fixed satellite frame size (px) — smaller than the ambient 110–160 band so
@@ -14,8 +14,9 @@ import type { FramePairWeight } from "./frame-pair-rollup.js";
 export const SATELLITE_SIZE = 84;
 /** Aggregate dot collision radius (px) used for frame-repulsion. */
 export const AGG_RADIUS = 8;
-/** Bottom gutter y for the tie-less margin fallback (inside the stage). */
-const MARGIN_Y = STAGE_H - 28;
+/** Bottom gutter inset (px) for the tie-less margin fallback, measured up from
+ *  the stage bottom. Stage-relative so it follows a scaled stage. */
+const MARGIN_INSET = 28;
 /** Iteration cap for the repulsion solve (bounded → terminates, deterministic). */
 const REPEL_ITERATIONS = 24;
 /** Grid step (px) for the outward free-slot search in separateMovables. Integer
@@ -136,7 +137,7 @@ export function weightedCentroid(anchors: readonly WeightedAnchor[]): { x: numbe
  * (placeNonAmbientFrames / placeAggregates) no longer use it — they use
  * separateMovables, which also resolves satellite-vs-satellite collisions.
  */
-export function repelFromBoxes(x: number, y: number, size: number, boxes: readonly Box[]): { x: number; y: number } {
+export function repelFromBoxes(x: number, y: number, size: number, boxes: readonly Box[], stage: Stage = REFERENCE_STAGE): { x: number; y: number } {
   let px = x, py = y;
   const half = size / 2;
   for (let iter = 0; iter < REPEL_ITERATIONS; iter++) {
@@ -156,8 +157,8 @@ export function repelFromBoxes(x: number, y: number, size: number, boxes: readon
     }
     if (!moved) break;
   }
-  px = Math.min(STAGE_W - half, Math.max(half, px));
-  py = Math.min(STAGE_H - half, Math.max(half, py));
+  px = Math.min(stage.w - half, Math.max(half, px));
+  py = Math.min(stage.h - half, Math.max(half, py));
   return { x: q(px), y: q(py) };
 }
 
@@ -191,21 +192,21 @@ function boxesOverlap(ax: number, ay: number, asz: number, b: Box): boolean {
  * toward −y first — a deterministic (not radially-symmetric) bias, which is fine
  * for the non-overlap invariant.
  */
-export function separateMovables(movables: Movable[], fixed: readonly Box[]): Movable[] {
+export function separateMovables(movables: Movable[], fixed: readonly Box[], stage: Stage = REFERENCE_STAGE): Movable[] {
   const placed: Box[] = [...fixed.map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.h }))];
   const onStage = (x: number, y: number, half: number) =>
-    x >= half && x <= STAGE_W - half && y >= half && y <= STAGE_H - half;
+    x >= half && x <= stage.w - half && y >= half && y <= stage.h - half;
   const free = (x: number, y: number, size: number) =>
     onStage(x, y, size / 2) && !placed.some((b) => boxesOverlap(x, y, size, b));
 
   for (const m of movables) {
     const half = m.size / 2;
-    let sx = q(Math.min(STAGE_W - half, Math.max(half, m.x)));
-    let sy = q(Math.min(STAGE_H - half, Math.max(half, m.y)));
+    let sx = q(Math.min(stage.w - half, Math.max(half, m.x)));
+    let sy = q(Math.min(stage.h - half, Math.max(half, m.y)));
     if (!free(sx, sy, m.size)) {
       let found = false;
       // Expanding square rings around the seed; SEARCH_STEP-px grid, nearest first.
-      const maxR = Math.ceil(Math.max(STAGE_W, STAGE_H) / SEARCH_STEP);
+      const maxR = Math.ceil(Math.max(stage.w, stage.h) / SEARCH_STEP);
       for (let r = 1; r <= maxR && !found; r++) {
         const d = r * SEARCH_STEP;
         for (let off = -d; off <= d && !found; off += SEARCH_STEP) {
@@ -228,16 +229,74 @@ export function separateMovables(movables: Movable[], fixed: readonly Box[]): Mo
 
 /** Deterministic slot in the bottom gutter for tie-less entities. Slots spread
  *  evenly across the inner 10%–90% of stage width. */
-export function marginSlot(index: number, total: number, size: number): { x: number; y: number } {
+export function marginSlot(
+  index: number, total: number, size: number,
+  stage: Stage = REFERENCE_STAGE,
+  content: { x0: number; y0: number; x1: number; y1: number } | null = null,
+): { x: number; y: number } {
   const half = size / 2;
-  const x = total <= 1 ? STAGE_W / 2 : STAGE_W * (0.1 + (0.8 * index) / (total - 1));
-  const clampedX = Math.min(STAGE_W - half, Math.max(half, x));
-  return { x: q(clampedX), y: q(MARGIN_Y) };
+  // Spread across the CONTENT's width and sit just under its lower edge when
+  // content bounds are known; fall back to the stage otherwise. Anchoring to the
+  // stage on a count-scaled stage drops tie-less items into a gutter that is
+  // nowhere near anything (the `generated` aggregate landing ~1000px below the
+  // frame cloud).
+  const lo = content ? content.x0 : 0;
+  const hi = content ? content.x1 : stage.w;
+  const span = Math.max(1, hi - lo);
+  const x = total <= 1 ? lo + span / 2 : lo + span * (0.1 + (0.8 * index) / (total - 1));
+  // The stage fallback stays byte-identical to the pre-change behaviour: the
+  // gutter y is the raw inset, deliberately unclamped (a dot may overhang). Only
+  // the content-relative gutter is clamped on-stage, since content.y1 plus the
+  // inset can otherwise run past a tightly-fitted stage edge.
+  const y = content
+    ? q(Math.min(stage.h - half, Math.max(half, content.y1 + MARGIN_INSET + half)))
+    : q(stage.h - MARGIN_INSET);
+  return { x: q(Math.min(stage.w - half, Math.max(half, x))), y };
+}
+
+/** Placement knobs shared by the satellite/aggregate passes. */
+export interface PlacementOptions {
+  /** Coordinate space the anchors live in. Defaults to the reference stage;
+   *  MUST be the frame map's stage when the layout scaled it, or everything is
+   *  clamped into the reference-sized corner of a larger stage. */
+  stage?: Stage;
+  /** Every frame is positioned and the anchor set is the whole map (the full-sim
+   *  layout), rather than a small ambient cut on a fixed stage.
+   *
+   *  Two policies flip, for the same underlying reason — on a full map the
+   *  anchors span the stage, so anything defined relative to the STAGE lands far
+   *  from all content instead of near some of it:
+   *
+   *  - The cloud keep-out is dropped. It exists to stop an auxiliary vanishing
+   *    into a dense blob of a few frames; when the cloud spans the map,
+   *    "outside the cloud" means "exiled to the stage edge", tearing each
+   *    aggregate off the frames whose gravity chose its position. A full map has
+   *    real space BETWEEN frames, and `separateMovables` already guarantees
+   *    non-overlap, so the keep-out buys nothing and costs adjacency.
+   *  - The tie-less margin gutter is measured from the CONTENT bounding box
+   *    rather than the stage bottom. A stage-bottom gutter sat close to the
+   *    content on the old fixed 1000x800 stage; on a stage scaled to the frame
+   *    count it strands a lone dot hundreds of px below everything.
+   *
+   *  Both are the placement-blind-strip failure D-bj3n set out to remove,
+   *  reintroduced by geometry rather than by design. */
+  fullMap?: boolean;
+}
+
+/** Bounding box of the anchor frames — the region actual content occupies, as
+ *  opposed to the stage it is drawn on. Null for an empty set. */
+export function contentBounds(boxes: readonly Box[]): { x0: number; y0: number; x1: number; y1: number } | null {
+  if (boxes.length === 0) return null;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const b of boxes) {
+    x0 = Math.min(x0, b.x - b.w / 2); x1 = Math.max(x1, b.x + b.w / 2);
+    y0 = Math.min(y0, b.y - b.h / 2); y1 = Math.max(y1, b.y + b.h / 2);
+  }
+  return { x0, y0, x1, y1 };
 }
 
 /** Position each aggregate via the edge→path→margin tie cascade, relative to the
- *  AMBIENT frame positions. Aggregates tie only to ambient frames (stable
- *  anchors). Returns aggregate id → integer center {x, y}. */
+ *  supplied anchor frames. Returns aggregate id → integer center {x, y}. */
 export function placeAggregates(
   aggregates: readonly { id: string; member_count: number }[],
   edgeTies: Map<string, Map<number, number>>,
@@ -245,7 +304,9 @@ export function placeAggregates(
   frameRepDirs: Map<number, string>,
   ambientPositions: readonly { id: number; x: number; y: number }[],
   ambientBoxes: readonly Box[],
+  opts: PlacementOptions = {},
 ): Map<string, { x: number; y: number }> {
+  const stage = opts.stage ?? REFERENCE_STAGE;
   const ambientPos = new Map(ambientPositions.map((p) => [p.id, p]));
   const ordered = [...aggregates].sort((a, b) => a.id.localeCompare(b.id));
 
@@ -275,16 +336,18 @@ export function placeAggregates(
   const tieless = ordered.filter((a) => seeds.get(a.id) === null).map((a) => a.id);
   const tielessIndex = new Map(tieless.map((id, i) => [id, i]));
 
-  // Seed at the tie centroid (or margin), push any seed that landed inside the
-  // cloud out to its outskirts, then separate the aggregate dots against the
-  // ambient anchors AND each other so dots don't stack either.
-  const cloud = ambientCloud(ambientBoxes);
+  // Seed at the tie centroid (or margin), optionally push a seed that landed
+  // inside the cloud out to its outskirts, then separate the aggregate dots
+  // against the anchors AND each other so dots don't stack either.
+  const fullMap = opts.fullMap ?? false;
+  const content = fullMap ? contentBounds(ambientBoxes) : null;
+  const cloud = fullMap ? null : ambientCloud(ambientBoxes);
   const movables: Movable[] = ordered.map((a, i) => {
-    const raw = seeds.get(a.id) ?? marginSlot(tielessIndex.get(a.id)!, tieless.length, AGG_RADIUS * 2);
+    const raw = seeds.get(a.id) ?? marginSlot(tielessIndex.get(a.id)!, tieless.length, AGG_RADIUS * 2, stage, content);
     const seed = cloud ? pushOutsideCloud(raw.x, raw.y, AGG_RADIUS * 2, cloud, i) : raw;
     return { id: a.id, x: seed.x, y: seed.y, size: AGG_RADIUS * 2 };
   });
-  separateMovables(movables, ambientBoxes);
+  separateMovables(movables, ambientBoxes, stage);
   const out = new Map<string, { x: number; y: number }>();
   for (const m of movables) out.set(m.id as string, { x: m.x, y: m.y });
   return out;
@@ -302,7 +365,9 @@ export function placeNonAmbientFrames(
   framePairs: readonly FramePairWeight[],
   ambientPositions: readonly { id: number; x: number; y: number }[],
   ambientBoxes: readonly Box[],
+  opts: PlacementOptions = {},
 ): Map<number, { x: number; y: number }> {
+  const stage = opts.stage ?? REFERENCE_STAGE;
   const ambientPos = new Map(ambientPositions.map((p) => [p.id, p]));
   const partnersOf = new Map<number, WeightedAnchor[]>();
   for (const f of nonAmbient) partnersOf.set(f.frame_id, []);
@@ -319,14 +384,16 @@ export function placeNonAmbientFrames(
   // Seed at the centroid (or margin), push any seed that landed inside the cloud
   // out to its outskirts, then separate the whole satellite set against the
   // ambient anchors AND each other in one deterministic pass.
-  const cloud = ambientCloud(ambientBoxes);
+  const fullMap = opts.fullMap ?? false;
+  const content = fullMap ? contentBounds(ambientBoxes) : null;
+  const cloud = fullMap ? null : ambientCloud(ambientBoxes);
   const movables: Movable[] = sorted.map((id, i) => {
     const c = weightedCentroid(partnersOf.get(id) ?? []);
-    const raw = c ?? marginSlot(tielessIndex.get(id)!, tieless.length, SATELLITE_SIZE);
+    const raw = c ?? marginSlot(tielessIndex.get(id)!, tieless.length, SATELLITE_SIZE, stage, content);
     const seed = cloud ? pushOutsideCloud(raw.x, raw.y, SATELLITE_SIZE, cloud, i) : raw;
     return { id, x: seed.x, y: seed.y, size: SATELLITE_SIZE };
   });
-  separateMovables(movables, ambientBoxes);
+  separateMovables(movables, ambientBoxes, stage);
   const out = new Map<number, { x: number; y: number }>();
   for (const m of movables) out.set(m.id as number, { x: m.x, y: m.y });
   return out;
