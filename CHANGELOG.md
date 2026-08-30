@@ -18,7 +18,7 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
-## [2.3.0] — 2026-08-24
+## [2.3.0] — 2026-08-30
 
 Adds language-agnostic indexing-quality metrics to the eval harness. Before
 this, `evals/` could only answer "is Nuxt extraction still right?" on a handful
