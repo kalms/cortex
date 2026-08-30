@@ -18,6 +18,51 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [2.3.1] — 2026-08-30
+
+### Fixed
+
+- **The store cache is keyed on repo identity, not the git tree alone.** A
+  cached store is a whole SQLite file — it carries its writer's `ctx_projects`
+  row, its `root_path`, and its project name baked into every `qualified_name`.
+  The key was `sha256(indexerVersion, grammarPackHash, gitTreeHash)` with no
+  repo identity in it, so any two checkouts sitting on the same tree shared one
+  entry and a hit handed the second checkout the first's identity entire. Its
+  canvas then queried by its own name, matched nothing and drew nothing; every
+  search result came back annotated with the stranger's name; snippets resolved
+  to paths that need not still exist.
+
+  Two checkouts of one repo on the same commit have the same tree *by
+  definition* — the normal state of a worktree just branched from main — so this
+  was a certainty rather than a risk. Observed 2026-08-30: an index run replaced
+  a worktree's own store with another worktree's, wholesale, eighteen seconds
+  after an unrelated commit had given the two the same tree. Every node in the
+  result carried the other checkout's index timestamp; it had never seen that
+  branch's work.
+
+  The adjacent hazard was already guarded at the call site — no `.git` means no
+  tree to key on, "which would let an unrelated repo serve stale results". This
+  is the same hazard one step over: same tree, different repo.
+
+- **`indexerVersion()` no longer degrades to a constant.** It resolved
+  `bin/cortex-indexer` relative to `process.cwd()` and answered `"unknown"` when
+  that failed. For an embedded sidecar the cwd is never the install root, so it
+  failed on *every* call and indexer-version invalidation was silently absent
+  from the key for those deployments. It now resolves via `indexerBinPath()` —
+  the rule `cliVersion()` states one function over — and returns null, so
+  `computeCacheKey` declines to build a key at all. Serving no cache is safe;
+  keying on a constant is not.
+
+- **`readCacheEntry` verifies the entry's declared identity** and drops it on a
+  mismatch, and the call site now honours that answer instead of discarding it.
+  Discarding it is why the mislabel was silent — the import reported success.
+  Identity is in the key now, so a mismatch should be impossible, which is
+  exactly why it is worth asserting where it costs one `SELECT` on a file about
+  to be copied anyway. It also disposes of entries written by an older build.
+
+  Adding identity changes every key, so the cache misses once and refills. A
+  miss costs one index; a wrong hit is silent.
+
 ## [2.3.0] — 2026-08-30
 
 Adds language-agnostic indexing-quality metrics to the eval harness. Before
@@ -2584,6 +2629,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[2.3.1]: https://github.com/ruevu/cortex/releases/tag/v2.3.1
 [2.3.0]: https://github.com/ruevu/cortex/releases/tag/v2.3.0
 [2.2.3]: https://github.com/ruevu/cortex/releases/tag/v2.2.3
 [2.2.2]: https://github.com/ruevu/cortex/releases/tag/v2.2.2

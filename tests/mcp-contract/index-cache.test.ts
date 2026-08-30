@@ -37,7 +37,7 @@ describe("index_repository content-hash cache", () => {
 
   it("hits cache on second call with unchanged repo", async () => {
     // Capture the key we'll be writing so afterAll can clean it up.
-    const key = computeCacheKey(repo);
+    const key = computeCacheKey(repo)!;
     createdKeys.push(key);
 
     const r1 = await callTool(h, "index_repository", { repo_path: repo });
