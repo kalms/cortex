@@ -90,13 +90,20 @@ function result(
   text: string,
   _predicateHint: { kind: "tool_text_nonempty" },
 ): AssertionResult {
-  const passed = (() => {
-    if (a.predicate.op === "tool_text_nonempty") return text.length > 0;
-    if (a.predicate.op === "tool_text_contains") return text.includes((a.predicate as { needle: string }).needle);
-    return false;
+  const passed: boolean | null = (() => {
+    if (a.predicate?.op === "tool_text_nonempty") return text.length > 0;
+    if (a.predicate?.op === "tool_text_contains") return text.includes((a.predicate as { needle: string }).needle);
+    // No predicate, or one this runner cannot evaluate: not judged. Returning
+    // false here would invent a failure, the same shape runner.ts avoids by
+    // returning null. Dead today — no universal metric uses a tool_call query —
+    // but one correct implementation and one dormant-wrong one is how the wrong
+    // one gets copied.
+    return null;
   })();
   const surprised =
-    (a.baseline_expected === "pass" && !passed) ||
-    (a.baseline_expected === "fail" && passed);
+    passed === null
+      ? false
+      : (a.baseline_expected === "pass" && !passed) ||
+        (a.baseline_expected === "fail" && passed);
   return { assertion: a, observed: { text }, passed, surprised };
 }

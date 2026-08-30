@@ -3,18 +3,51 @@
     {
       "name": "nuxt-ui",
       "repo_url": "https://github.com/nuxt/ui.git",
-      "sha": "main",
-      "default_branch": "main"
+      "sha": "v4",
+      "default_branch": "v4",
+      "packs": ["universal", "nuxt"],
+      "suites": ["nuxt", "corpus"]
     },
     {
       "name": "nuxthub-starter",
       "repo_url": "https://github.com/nuxt-hub/starter.git",
       "sha": "main",
-      "default_branch": "main"
+      "default_branch": "main",
+      "packs": ["universal", "nuxt"],
+      "suites": ["nuxt"]
     },
     {
-      "name": "anthill-cloud",
-      "local_path": "/Users/rka/Development/anthill-cloud"
-    }
+      "name": "elk",
+      "repo_url": "https://github.com/elk-zone/elk.git",
+      "sha": "main",
+      "default_branch": "main",
+      "packs": ["universal", "nuxt"],
+      "suites": ["nuxt"]
+    },
+    {
+      "name": "open-pencil",
+      "repo_url": "https://github.com/open-pencil/open-pencil.git",
+      "sha": "master",
+      "default_branch": "master",
+      "packs": ["universal"],
+      "suites": ["nuxt"]
+    },
+    { "name": "vueuse",          "repo_url": "https://github.com/vueuse/vueuse.git",           "sha": "main", "packs": ["universal"], "suites": ["corpus"] },
+    { "name": "tanstack-table",  "repo_url": "https://github.com/TanStack/table.git",          "sha": "main", "packs": ["universal"], "suites": ["corpus"] },
+    { "name": "trpc",            "repo_url": "https://github.com/trpc/trpc.git",               "sha": "main", "packs": ["universal"], "suites": ["corpus"] },
+    { "name": "vercel-commerce", "repo_url": "https://github.com/vercel/commerce.git",         "sha": "main", "packs": ["universal"], "suites": ["corpus"] },
+    { "name": "cobra",           "repo_url": "https://github.com/spf13/cobra.git",             "sha": "main", "packs": ["universal"], "suites": ["corpus"] },
+    { "name": "click",           "repo_url": "https://github.com/pallets/click.git",           "sha": "main", "packs": ["universal"], "suites": ["corpus"] },
+    { "name": "peft",            "repo_url": "https://github.com/huggingface/peft.git",        "sha": "main", "packs": ["universal"], "suites": ["corpus"] },
+    { "name": "saleor",          "repo_url": "https://github.com/saleor/saleor.git",           "sha": "main", "packs": ["universal"], "suites": ["corpus"] },
+    { "name": "rubygems-org",    "repo_url": "https://github.com/rubygems/rubygems.org.git",   "sha": "master", "packs": ["universal"], "suites": ["corpus"] },
+    { "name": "ripgrep",         "repo_url": "https://github.com/BurntSushi/ripgrep.git",      "sha": "master", "packs": ["universal"], "suites": ["corpus"] },
+    { "name": "gson",            "repo_url": "https://github.com/google/gson.git",             "sha": "main", "packs": ["universal"], "suites": ["corpus"] },
+    { "name": "fmt",             "repo_url": "https://github.com/fmtlib/fmt.git",              "sha": "main", "packs": ["universal"], "suites": ["corpus"] },
+    { "name": "guzzle",          "repo_url": "https://github.com/guzzle/guzzle.git",           "sha": "8.0", "packs": ["universal"], "suites": ["corpus"] },
+    { "name": "jq",              "repo_url": "https://github.com/jqlang/jq.git",               "sha": "master", "packs": ["universal"], "suites": ["corpus"] },
+    { "name": "vapor",           "repo_url": "https://github.com/vapor/vapor.git",             "sha": "main", "packs": ["universal"], "suites": ["corpus"] },
+    { "name": "jellyfin",        "repo_url": "https://github.com/jellyfin/jellyfin.git",       "sha": "master", "packs": ["universal"], "suites": ["corpus"] },
+    { "name": "exposed",         "repo_url": "https://github.com/JetBrains/Exposed.git",       "sha": "main", "packs": ["universal"], "suites": ["corpus"] }
   ]
 }

@@ -14,6 +14,7 @@ export const FIX_5_ASSERTIONS: Assertion[] = [
     },
     predicate: { op: "gt", value: 5 },
     baseline_expected: "fail",
+    scope: "nuxt",
   },
   {
     fix_id: 5,
@@ -22,5 +23,6 @@ export const FIX_5_ASSERTIONS: Assertion[] = [
     query: { kind: "count_edge", type: "HANDLES" },
     predicate: { op: "gt", value: 0 },
     baseline_expected: "fail",
+    scope: "nuxt",
   },
 ];

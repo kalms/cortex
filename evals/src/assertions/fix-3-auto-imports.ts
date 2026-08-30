@@ -19,6 +19,7 @@ export const FIX_3_ASSERTIONS: Assertion[] = [
     },
     predicate: { op: "gt", value: 0 },
     baseline_expected: "fail",
+    scope: "nuxt",
   },
   {
     fix_id: 3,
@@ -34,5 +35,6 @@ export const FIX_3_ASSERTIONS: Assertion[] = [
     },
     predicate: { op: "gt", value: 0 },
     baseline_expected: "fail",
+    scope: "nuxt",
   },
 ];

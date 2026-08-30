@@ -18,9 +18,9 @@ describe("assertion registry", () => {
     }
   });
 
-  it("fix_id is one of {2, 3, 4, 5, 6, 8}", () => {
+  it("fix_id is one of {2, 3, 4, 5, 6, 8, 'universal'}", () => {
     for (const a of ALL_ASSERTIONS) {
-      expect([2, 3, 4, 5, 6, 8]).toContain(a.fix_id);
+      expect([2, 3, 4, 5, 6, 8, "universal"]).toContain(a.fix_id);
     }
   });
 

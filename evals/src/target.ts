@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import type { Target } from "./assertions/types.js";
+import type { Scorecard, Target } from "./assertions/types.js";
 import { evalIndexerEnv } from "../../src/cli/commands/eval.js";
 
 export type AcquiredTarget = {
@@ -80,4 +80,43 @@ function maybeReindex(workdir: string, graphDbPath: string): number | null {
     },
   );
   return (Date.now() - start) / 1000;
+}
+
+/** Edge types excluded from the determinism comparison because they are known
+ *  to vary across identical runs (todo T-48qt: SEMANTICALLY_RELATED measured
+ *  at 146/145/148 on an unchanged repo). Everything else is expected to be
+ *  bit-stable, so any difference is a real defect. */
+const NONDETERMINISTIC_EDGE_TYPES = new Set(["SEMANTICALLY_RELATED"]);
+
+export function compareGraphShape(
+  a: Scorecard,
+  b: Scorecard,
+): { stable: boolean; differences: string[] } {
+  const differences: string[] = [];
+
+  for (const key of new Set([...Object.keys(a.nodes_by_label), ...Object.keys(b.nodes_by_label)])) {
+    const x = a.nodes_by_label[key] ?? 0;
+    const y = b.nodes_by_label[key] ?? 0;
+    if (x !== y) differences.push(`nodes.${key}: ${x} vs ${y}`);
+  }
+
+  for (const key of new Set([...Object.keys(a.edges_by_type), ...Object.keys(b.edges_by_type)])) {
+    if (NONDETERMINISTIC_EDGE_TYPES.has(key)) continue;
+    const x = a.edges_by_type[key] ?? 0;
+    const y = b.edges_by_type[key] ?? 0;
+    if (x !== y) differences.push(`edges.${key}: ${x} vs ${y}`);
+  }
+
+  return { stable: differences.length === 0, differences };
+}
+
+/** Index unconditionally. maybeReindex skips when the cached graph.db is newer
+ *  than the workdir's .git/HEAD, which would make a determinism run compare a
+ *  graph against itself and always report stable. */
+export function forceReindex(workdir: string, graphDbPath: string): number {
+  rmSync(graphDbPath, { force: true });
+  rmSync(`${graphDbPath}-shm`, { force: true });
+  rmSync(`${graphDbPath}-wal`, { force: true });
+  const seconds = maybeReindex(workdir, graphDbPath);
+  return seconds ?? 0;
 }

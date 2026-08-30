@@ -1,5 +1,6 @@
 import { GraphStore } from "../../../src/graph/store.js";
 import type { Assertion, AssertionResult, Predicate } from "./types.js";
+import { computeLanguageDensity } from "./universal.js";
 
 export type RunnerContext = {
   dbPath: string;
@@ -8,7 +9,7 @@ export type RunnerContext = {
 export function runAssertion(a: Assertion, ctx: RunnerContext): AssertionResult {
   const store = new GraphStore(ctx.dbPath);
 
-  let observed: number | string[];
+  let observed: number | string[] | Record<string, number> | null;
   switch (a.query.kind) {
     case "count_label": {
       const row = store.queryRaw<{ n: number }>(
@@ -28,7 +29,7 @@ export function runAssertion(a: Assertion, ctx: RunnerContext): AssertionResult 
     }
     case "sql": {
       const rows = store.queryRaw<Record<string, unknown>>(a.query.sql);
-      if (a.predicate.op === "matches" || a.predicate.op === "no_match") {
+      if (a.predicate?.op === "matches" || a.predicate?.op === "no_match") {
         observed = rows.map((r) => String(Object.values(r)[0] ?? ""));
       } else {
         // Numeric predicate. If the SQL returns a single row whose first column
@@ -36,10 +37,20 @@ export function runAssertion(a: Assertion, ctx: RunnerContext): AssertionResult 
         // fall back to row count.
         const first = rows[0];
         const firstVal = first ? Object.values(first)[0] : undefined;
-        observed = typeof firstVal === "number" && rows.length === 1
-          ? firstVal
-          : rows.length;
+        if (rows.length === 1 && firstVal === null) {
+          // An aggregate over zero rows. Falling through to rows.length would
+          // report 1 — a number, and on a lower-is-better metric a flattering one.
+          observed = null;
+        } else {
+          observed = typeof firstVal === "number" && rows.length === 1
+            ? firstVal
+            : rows.length;
+        }
       }
+      break;
+    }
+    case "language_density": {
+      observed = computeLanguageDensity(store);
       break;
     }
     case "tool_call":
@@ -48,15 +59,20 @@ export function runAssertion(a: Assertion, ctx: RunnerContext): AssertionResult 
       );
   }
 
-  const passed = evaluatePredicate(a.predicate, observed);
+  const passed = a.predicate ? evaluatePredicate(a.predicate, observed) : null;
   const surprised =
-    (a.baseline_expected === "pass" && !passed) ||
-    (a.baseline_expected === "fail" && passed);
+    passed === null
+      ? false
+      : (a.baseline_expected === "pass" && !passed) ||
+        (a.baseline_expected === "fail" && passed);
 
   return { assertion: a, observed, passed, surprised };
 }
 
-function evaluatePredicate(p: Predicate, observed: number | string[]): boolean {
+function evaluatePredicate(
+  p: Predicate,
+  observed: number | string[] | Record<string, number> | null,
+): boolean {
   switch (p.op) {
     case "gt":
       return typeof observed === "number" && observed > p.value;

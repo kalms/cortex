@@ -11,6 +11,7 @@ export const FIX_6_ASSERTIONS: Assertion[] = [
     },
     predicate: { op: "no_match", regex: "tarball|\\.tgz" },
     baseline_expected: "pass",
+    scope: "nuxt",
   },
   {
     fix_id: 6,
@@ -22,5 +23,6 @@ export const FIX_6_ASSERTIONS: Assertion[] = [
     },
     predicate: { op: "no_match", regex: "codeartifact" },
     baseline_expected: "pass",
+    scope: "nuxt",
   },
 ];

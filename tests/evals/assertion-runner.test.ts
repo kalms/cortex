@@ -28,6 +28,7 @@ describe("assertion runner — graph queries", () => {
       query: { kind: "count_label", label: "function" },
       predicate: { op: "gt", value: 0 },
       baseline_expected: "fail",
+      scope: "nuxt",
     };
     const result = runAssertion(a, { dbPath });
     expect(result.passed).toBe(true);
@@ -43,6 +44,7 @@ describe("assertion runner — graph queries", () => {
       query: { kind: "count_label", label: "Route" },
       predicate: { op: "eq", value: 0 },
       baseline_expected: "pass",
+      scope: "nuxt",
     };
     const result = runAssertion(a, { dbPath });
     expect(result.passed).toBe(true);   // 0 == 0
@@ -61,6 +63,7 @@ describe("assertion runner — graph queries", () => {
       query: { kind: "count_edge", type: "HTTP_CALLS" },
       predicate: { op: "gt", value: 0 },
       baseline_expected: "fail",
+      scope: "nuxt",
     };
     const result = runAssertion(a, { dbPath });
     expect(result.passed).toBe(true);
@@ -77,6 +80,7 @@ describe("assertion runner — graph queries", () => {
       query: { kind: "sql", sql: "SELECT name FROM nodes WHERE kind = 'Route'" },
       predicate: { op: "matches", regex: "^/api/" },
       baseline_expected: "fail",
+      scope: "nuxt",
     };
     const result = runAssertion(a, { dbPath });
     expect(result.passed).toBe(true);
@@ -94,6 +98,7 @@ describe("assertion runner — graph queries", () => {
       query: { kind: "sql", sql: "SELECT COUNT(*) AS n FROM nodes WHERE kind = 'function'" },
       predicate: { op: "gt", value: 1 },
       baseline_expected: "fail",
+      scope: "nuxt",
     };
     const result = runAssertion(a, { dbPath });
     expect(result.observed).toBe(3);
@@ -110,6 +115,7 @@ describe("assertion runner — graph queries", () => {
       query: { kind: "sql", sql: "SELECT name FROM nodes WHERE kind = 'Route'" },
       predicate: { op: "gt", value: 1 },
       baseline_expected: "fail",
+      scope: "nuxt",
     };
     const result = runAssertion(a, { dbPath });
     expect(result.observed).toBe(2);
@@ -125,6 +131,7 @@ describe("assertion runner — graph queries", () => {
       query: { kind: "sql", sql: "SELECT name FROM nodes WHERE kind = 'Route'" },
       predicate: { op: "no_match", regex: "codeartifact" },
       baseline_expected: "pass",
+      scope: "nuxt",
     };
     const result = runAssertion(a, { dbPath });
     expect(result.passed).toBe(false);
