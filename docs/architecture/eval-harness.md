@@ -81,24 +81,38 @@ already-indexed DB. The supported query shapes are:
 | `count_label` | `SELECT COUNT(*) FROM nodes WHERE kind = ?` |
 | `count_edge` | `SELECT COUNT(*) FROM edges WHERE relation = ?` |
 | `sql` | Raw SQL — returns count or stringified first column depending on predicate |
-| `tool_call` | Reserved — routes through a separate tool-runner (not implemented yet) |
+| `tool_call` | Routes through `assertions/tool-runner.ts`, which calls the real MCP tool. Needs an `evals/fixtures/<target>.json`; targets without one skip these. |
 
 Predicates are `gt`/`gte`/`eq`/`matches`/`no_match`/`tool_text_nonempty`/`tool_text_contains`.
 
 ## Status
 
-The harness is **scaffolded but not wired together**. The pieces:
+The harness runs end to end: `evals/src/cli.ts` acquires each target (clone or
+`local_path`), indexes it, computes the scorecard, runs the assertions its packs
+select, ratchets the universal ones against the committed baseline, and writes a
+report to `evals/reports/<timestamp>/`. That flow is informed by the
+[field assessment](../field-reports/field-assessment-nuxt-monorepo.md).
 
-- ✅ `evals/targets.json` — target list with both clone and local-path support
-- ✅ `evals/src/queries.ts` — full killer-query list (Cypher comments cross-check against the spec)
-- ✅ `evals/src/scorecard.ts` — bulk counts + killer query runner
-- ✅ `evals/src/assertions/types.ts` + `runner.ts` — assertion model + SQL/count runner
-- ✅ `tests/evals/scorecard.test.ts` + `assertion-runner.test.ts` — unit coverage
-- ❌ `evals/src/cli.ts` — currently just `console.error("not implemented yet")`. Wiring up clone → index → score → assert → diff baseline is the next chunk.
-- ❌ `evals/baselines/` — empty; populated on first end-to-end run.
+    npm run eval                                   # default suite
+    npm run eval -- --target=elk                   # one target
+    npm run eval -- --suite=corpus                 # the 17-repo corpus
+    npm run eval -- --capture-baseline=<target>    # record a new reference
+    npm run eval -- --accept-improvements          # adopt confirmed gains
+    npm run eval -- --determinism                  # index twice, compare shape
 
-The end-to-end flow (clone → index → score → assert → baseline diff) is
-informed by the [field assessment](../field-reports/field-assessment-nuxt-monorepo.md).
+Baselines are committed for `elk`, `nuxthub-starter`, `open-pencil`, `trpc` and
+`vueuse`, all captured on indexer 0.3.2. The remaining corpus targets have none
+yet: they report `(no baseline)` until someone captures one, which is the honest
+state rather than a failure.
+
+Two known gaps, neither blocking:
+
+- **`nuxt-ui` is pinned to a branch that no longer exists.** Its `sha` is
+  `main`, but nuxt/ui's default branch is now `v4`. A default-suite run fails on
+  that target until it is repinned.
+- **Universal metrics are unmeasured on 17 of 21 targets.** A corpus run takes
+  hours (clone + full index each), so the corpus is opt-in and its baselines are
+  captured deliberately rather than on every run.
 
 ## Why the killer queries look the way they do
 

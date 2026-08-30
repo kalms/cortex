@@ -400,7 +400,15 @@ A separate eval harness lives under `evals/` and is invoked via `npm run eval`. 
 
 The harness produces a **scorecard** per target: `nodes_by_label` + `edges_by_type` + a fixed list of "killer queries" exercising the queries that the [field assessment](docs/field-reports/field-assessment-nuxt-monorepo.md) showed Cortex falling short on (high-degree functions in Vue/Nuxt repos, `HTTP_CALLS` edges, composables called, Nitro handlers, etc.). Each query has a baseline_expected `pass`/`fail` and the harness reports anything surprising relative to the baseline.
 
-The harness is scaffolded; the CLI entry point (`evals/src/cli.ts`) is still a stub. See [docs/architecture/eval-harness.md](docs/architecture/eval-harness.md) for the design.
+Alongside those ecosystem-specific checks it runs a **universal** pack — `file_sourced_calls`, `call_attribution_rate`, `qn_collisions`, `orphan_definition_rate` and per-language function density — that applies to a repository in any language. These carry no pass/fail threshold, because none exists: 40% call attribution may be terrible for one language and expected for another. Their verdict comes from a **ratchet** against that repo's own committed baseline, so the question asked is "did indexing get worse on THIS repo?" A run never rewrites its own baseline; an improvement is reported as `IMPROVED — baseline stale` and adopted only via `npm run eval -- --accept-improvements`.
+
+```bash
+npm run eval                                # default suite
+npm run eval -- --suite=corpus              # 17-repo multi-language corpus
+npm run eval -- --capture-baseline=<target> # record a new reference
+```
+
+See [docs/architecture/eval-harness.md](docs/architecture/eval-harness.md) for the design, the metric definitions, and the gotchas.
 
 ## Skills
 
