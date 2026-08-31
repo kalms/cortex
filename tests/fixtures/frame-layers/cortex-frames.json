@@ -45,7 +45,7 @@
     "frame_id": 2,
     "frame_label": "evals/assertions",
     "member_paths": [
-      "evals/baselines/anthill-cloud.json",
+      "evals/baselines/elk.json",
       "evals/src/assertions/runner.ts",
       "evals/src/assertions/tool-runner.ts",
       "evals/src/assertions/types.ts",

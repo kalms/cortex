@@ -105,7 +105,7 @@ Committed baseline (`baselines/2026-06-06.json`), weighted-F1 per repo:
 ```
 self/cortex 0.643 · vueuse 0.511 · TanStack/table 0.557 · trpc 0.529 · nuxt/ui 0.474
 spf13/cobra 0.000 (0 clusters!) · pallets/click 0.678 · huggingface/peft 0.499
-saleor 0.361 · rubygems 0.639 · anthill-cloud 0.723
+saleor 0.361 · rubygems 0.639 · private-monorepo 0.723
 mean over 11 = 0.510   |   mean over 10 (excluding cobra's 0-cluster collapse) = 0.561
 ```
 

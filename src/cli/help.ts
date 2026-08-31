@@ -75,7 +75,7 @@ const NAMESPACES: Record<string, Record<string, CommandDoc>> = {
     link:    { usage: "cortex decision link <id> <target> [--relation=GOVERNS]", description: "Link a decision to a file or symbol.", examples: ["cortex decision link abc-123 src/auth.ts"] },
     list:    { usage: "cortex decision list [--query=...] [--cross-repo]", description: "List or search decisions. --cross-repo fans out over every registered repo (rows gain a repo column; unreachable repos noted on stderr).", examples: ["cortex decision list", "cortex decision list --query='auth'", "cortex decision list --cross-repo --query='auth'"] },
     propose: { usage: "cortex decision propose --title=... --problem=... --resolution=... --rationale=...", description: "Propose a decision (status=proposed).", examples: ["cortex decision propose --title=... ..."] },
-    rehome:  { usage: "cortex decision rehome <id> --to=<repo_path> [--dry-run]", description: "Move a decision (row + links) to another repo's .cortex/decisions.db.", examples: ["cortex decision rehome abc-123 --to=/Users/rka/Development/anthill-cloud-sales"] },
+    rehome:  { usage: "cortex decision rehome <id> --to=<repo_path> [--dry-run]", description: "Move a decision (row + links) to another repo's .cortex/decisions.db.", examples: ["cortex decision rehome abc-123 --to=/path/to/other-repo"] },
     show:    { usage: "cortex decision show <id>",            description: "Show a decision by id.", examples: ["cortex decision show abc-123"] },
     supersede: { usage: "cortex decision supersede <old-id> --title=... --problem=... --resolution=... --rationale=...", description: "Atomically supersede an existing decision.", examples: ["cortex decision supersede abc-123 ..."] },
     update:  { usage: "cortex decision update <id> --field=value",  description: "Update fields on an existing decision.", examples: ["cortex decision update abc-123 --rationale='updated'"] },
@@ -92,8 +92,8 @@ const NAMESPACES: Record<string, Record<string, CommandDoc>> = {
     delete:  { usage: "cortex index delete <project>",       description: "Delete an indexed project.", examples: ["cortex index delete some-project"] },
   },
   eval: {
-    run:      { usage: "cortex eval [<target>] [--path=...]",       description: "Run the eval harness against all targets, or one.", examples: ["cortex eval", "cortex eval anthill-cloud --path=/Users/rka/Development/anthill-cloud"] },
-    baseline: { usage: "cortex eval baseline <target> [--path=...]", description: "Capture the baseline for a target.", examples: ["cortex eval baseline anthill-cloud --path=..."] },
+    run:      { usage: "cortex eval [<target>] [--path=...]",       description: "Run the eval harness against all targets, or one.", examples: ["cortex eval", "cortex eval elk --path=/path/to/checkout"] },
+    baseline: { usage: "cortex eval baseline <target> [--path=...]", description: "Capture the baseline for a target.", examples: ["cortex eval baseline elk"] },
     report:   { usage: "cortex eval report [--latest|--at=<timestamp>]", description: "Print the latest (or specified) eval summary.", examples: ["cortex eval report"] },
   },
   todo: {

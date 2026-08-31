@@ -6,7 +6,7 @@
 **Session scope:** Full Mesh M1 build (Electron host + chat + event log + Claude Code driver + substrate canvas fed by Cortex's HTTP API), plus follow-up fixes and a deliberate token-economics retrospective requested by the user
 
 Previous field reports evaluated Cortex as an exploration tool on foreign
-repos (anthill-cloud). This session is different in kind: Mesh is the first
+repos (private-monorepo). This session is different in kind: Mesh is the first
 *product built on top of Cortex* — it spawns `dist/index.js` as a sidecar,
 consumes `/api/projects` / `/api/graph` / `/api/decisions` live, and renders
 decision provenance as a first-class UI element. That makes this the first

@@ -121,7 +121,7 @@ describe("content signals", () => {
 
 describe("handler-suffix signal (Nitro/h3 method-suffixed route files)", () => {
   it("method-suffixed route files break the topological surface tie toward orchestration", () => {
-    // Observe-phase finding (anthill-cloud, 2026-06-13): Nuxt/Nitro
+    // Observe-phase finding (private-monorepo, 2026-06-13): Nuxt/Nitro
     // server/api/*.{get,post}.ts frames are pure sources (sink 0.0) and the
     // surface-pair tie always broke to interface — orchestration starved.
     // sink 0.0 → interface+orchestration 1.0 each; handler suffixes add to

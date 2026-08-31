@@ -133,7 +133,7 @@ const TEST_PATH_RE = /\.test\.|\.spec\.|(^|\/)tests?\//;
 const NON_RUNTIME_EXT_RE = /\.(sh|ya?ml|json|md)$/;
 
 /** Nitro/h3 method-suffixed route files (`server/api/*.{get,post,…}.ts`) are
- *  handlers — orchestration BY IDIOM. Observe-phase finding (anthill-cloud,
+ *  handlers — orchestration BY IDIOM. Observe-phase finding (private-monorepo,
  *  2026-06-13): these frames are pure sources (sink 0.0), the surface pair
  *  always tied, and canonical order starved orchestration to zero frames —
  *  no token in PATH_LAYER_TABLE matches the Nitro idiom.

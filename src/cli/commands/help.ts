@@ -6,7 +6,7 @@ const TOPICS: Record<string, string> = {
 Cortex stores every code symbol under a canonical qualified name (qn). It
 looks like this:
 
-    Users-rka-Development-anthill-cloud.apps.activator.app.components.ADesignSystemCard
+    Users-you-Development-my-app.apps.web.app.components.UserCard
 
 Format: <slash-replaced absolute path>.<dotted path to symbol>
 
@@ -25,8 +25,8 @@ the full qn.
 Project name is derived from the git root's absolute path with slashes
 replaced by hyphens. For example:
 
-    /Users/rka/Development/anthill-cloud
-    → Users-rka-Development-anthill-cloud
+    /Users/you/Development/my-app
+    → Users-you-Development-my-app
 
 The CLI picks the project automatically from the cwd. To override:
 
@@ -76,13 +76,13 @@ See: cortex decision --help
   eval: `eval — what the harness measures
 
 The eval harness runs a fixed battery of assertions against an indexed
-target (a Nuxt repo, anthill-cloud, etc.) and reports surprises — places
+target (a Nuxt repo, a TypeScript monorepo, etc.) and reports surprises — places
 where the outcome differs from the baseline expectation.
 
 To run:
 
     cortex eval                     # all targets in evals/targets.json
-    cortex eval anthill-cloud       # one target
+    cortex eval elk                 # one target
     cortex eval baseline <target>   # capture a new baseline
 
 Read the latest summary:

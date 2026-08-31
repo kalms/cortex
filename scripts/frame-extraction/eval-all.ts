@@ -131,8 +131,8 @@ function runF1Gate(args: CliArgs, rows: RepoEvalRow[]): boolean {
 
 /**
  * Project names to deregister after a corpus run. Only **git-cloned** corpus
- * repos are returned — never `local_path` fixtures (e.g. `self/cortex`,
- * `local/anthill-cloud`), which are real registered projects the user owns.
+ * repos are returned — never `local_path` fixtures (e.g. `self/cortex`),
+ * which are real registered projects the user owns.
  * Rows without a resolved `project` (clone/index failures) are skipped.
  *
  * Pure: takes the repos that ran + their result rows, returns names to delete.
@@ -348,7 +348,7 @@ async function main() {
 
   // Teardown: deregister the git-cloned corpus projects we just indexed, so
   // the eval leaves the global project registry as it found it. Local fixtures
-  // (self/cortex, anthill-cloud) are never touched. Opt out with --keep.
+  // (self/cortex) are never touched. Opt out with --keep.
   if (args.keep) {
     console.log("[eval-all] --keep set: corpus projects left registered.");
   } else {

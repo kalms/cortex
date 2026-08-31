@@ -1,7 +1,7 @@
 # Field Report — MCP Multi-Project Routing: Indexed Projects Unreachable
 
 **Date:** 2026-05-26
-**Evaluator:** Claude (Opus 4.7, 1M context), session in `/Users/rka/Development/anthill-cloud`
+**Evaluator:** Claude (Opus 4.7, 1M context), session in `/Users/rka/Development/private-monorepo`
 **Subject:** Cortex MCP server — `list_projects`, `index_status`, and per-project tool routing
 **Trigger:** User indexed a second repo (`/Users/rka/Development/activator/rosalind`) mid-session and asked me to use it. I couldn't.
 
@@ -19,7 +19,7 @@ For an LLM agent the practical impact is: a user can index a second repo, paste 
 
 ## Reproduction
 
-Session was in `/Users/rka/Development/anthill-cloud`. The user had previously indexed it and, mid-session, indexed `/Users/rka/Development/activator/rosalind` separately. The user pasted the indexer success output to me:
+Session was in `/Users/rka/Development/private-monorepo`. The user had previously indexed it and, mid-session, indexed `/Users/rka/Development/activator/rosalind` separately. The user pasted the indexer success output to me:
 
 ```json
 {
@@ -36,7 +36,7 @@ The exact project name from that payload is `Users-rka-Development-activator-ros
 
 ```
 mcp__plugin_cortex_cortex__list_projects → 
-  Users-rka-Development-anthill-cloud — /Users/rka/Development/anthill-cloud
+  Users-rka-Development-private-monorepo — /Users/rka/Development/private-monorepo
   (indexed: 2026-05-25T22:33:50Z)
 ```
 
@@ -64,7 +64,7 @@ mcp__plugin_cortex_cortex__get_architecture(
     "Users-rka-Development-cortex-.tmp-frame-extraction-corpus-pallets__click",
     "Users-rka-Development-cortex-.tmp-frame-extraction-corpus-huggingface__peft",
     "Users-rka-Development-cortex-.tmp-frame-extraction-corpus-nuxt__ui",
-    "Users-rka-Development-anthill-cloud",
+    "Users-rka-Development-private-monorepo",
     "Users-rka-Development-cortex-.tmp-frame-extraction-corpus-spf13__cobra",
     "Users-rka-Development-cortex-.tmp-frame-extraction-corpus-vueuse__vueuse",
     "Users-rka-Development-activator-rosalind"
@@ -93,7 +93,7 @@ mcp__plugin_cortex_cortex__search_graph(name_pattern="webapp-frontend")
 → Error: "Repository not indexed. Run index_repository first."
 ```
 
-No `project` parameter on this tool. It clearly resolves to *something* (some default project) and finds it not indexed — but the cwd's project (`Users-rka-Development-anthill-cloud`) is the one project `list_projects` *does* return as indexed. So even the implicit-cwd resolution is broken here.
+No `project` parameter on this tool. It clearly resolves to *something* (some default project) and finds it not indexed — but the cwd's project (`Users-rka-Development-private-monorepo`) is the one project `list_projects` *does* return as indexed. So even the implicit-cwd resolution is broken here.
 
 ### 5. `search_code` shells out to `grep` and bypasses the graph entirely
 
@@ -103,7 +103,7 @@ mcp__plugin_cortex_cortex__search_code(pattern="webapp-frontend")
   Command failed: grep -rn --exclude-dir=node_modules ... webapp-frontend .
 ```
 
-`search_code` is documented as "graph-enriched" but the implementation visibly fell back to a plain `grep -rn` on `.` (the session cwd, which is anthill-cloud, where `webapp-frontend` doesn't exist). The grep failed because nothing matched, and the error was bubbled up as an internal error.
+`search_code` is documented as "graph-enriched" but the implementation visibly fell back to a plain `grep -rn` on `.` (the session cwd, which is private-monorepo, where `webapp-frontend` doesn't exist). The grep failed because nothing matched, and the error was bubbled up as an internal error.
 
 ---
 

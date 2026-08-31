@@ -79,14 +79,6 @@
       "archetype": "rails-app",
       "size_hint": "medium",
       "primary_language": "ruby"
-    },
-    {
-      "slug": "local/anthill-cloud",
-      "git": null,
-      "local_path": "/Users/rka/Development/anthill-cloud",
-      "archetype": "nuxt-app",
-      "size_hint": "medium",
-      "primary_language": "typescript"
     }
   ]
 }

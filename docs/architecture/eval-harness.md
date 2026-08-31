@@ -111,7 +111,7 @@ on every run.
 ## Why the killer queries look the way they do
 
 Each one mirrors a concrete failure observed during the field
-assessment of a Nuxt monorepo (`anthill-cloud`, 5,010 nodes /
+assessment of a Nuxt monorepo (`private-monorepo`, 5,010 nodes /
 5,746 edges, 2026-05-20). Two examples:
 
 - **`functions_high_degree` returns zero rows** on a 410-module Nuxt

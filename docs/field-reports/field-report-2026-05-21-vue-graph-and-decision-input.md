@@ -1,8 +1,8 @@
 # Field Report — Vue Component Coverage + Decision Input Robustness
 
 **Date:** 2026-05-21
-**Evaluator:** Claude (Opus 4.7), session in `/Users/rka/Development/anthill-cloud`
-**Subject repo:** anthill-cloud — same Turborepo monorepo as the 2026-05-20 field assessment
+**Evaluator:** Claude (Opus 4.7), session in `/Users/rka/Development/private-monorepo`
+**Subject repo:** private-monorepo — same Turborepo monorepo as the 2026-05-20 field assessment
 **Re-indexed at start of session:** 5,502 nodes / 6,358 edges
 
 This is the follow-up session to [field-assessment-nuxt-monorepo.md](./field-assessment-nuxt-monorepo.md). The earlier report focused on cold-orientation queries (`get_architecture`, route listings, module name searches). Today's session exercised Cortex in a different mode: an active design brainstorm with a goal of "use the graph to navigate a Vue component + capture the decision."
@@ -44,7 +44,7 @@ create_decision(governs: ["apps/activator/app/components/ADesignSystemCard.vue",
 
 ### Reproduction
 
-In a fresh session against an indexed anthill-cloud:
+In a fresh session against an indexed private-monorepo:
 
 ```
 mcp__plugin_cortex_cortex__get_code_snippet(
@@ -167,5 +167,5 @@ Both issues have tractable fixes that don't require rearchitecting Cortex. I'd t
 - Successful: 5 (index_status, list_projects, index_repository, search_decisions, create_decision, update_decision, get_decision)
 - Failed or returned empty (where Vue was the target): 4
 - Workarounds invoked: Read, grep via Bash, `find` via Bash
-- Working directory: `/Users/rka/Development/anthill-cloud` on branch `feature/component/ds-card-themed-footer`
+- Working directory: `/Users/rka/Development/private-monorepo` on branch `feature/component/ds-card-themed-footer`
 - Companion artifacts: spec at `docs/superpowers/specs/2026-05-21-ds-card-themed-footer-design.md`, plan at `docs/superpowers/plans/2026-05-21-ds-card-themed-footer.md`, decision in Cortex id `cb1f6090-d9a7-4170-bf11-09a5bfd60c28`.
