@@ -7,6 +7,7 @@ import { loadProject, resyncProject } from "./data";
 import { useUiStore } from "./ui-store";
 import { frameCoverage } from "../canvas/adapters.js";
 import { handleAdvanceEvent } from "./story/story-controller";
+import { belongsToProject } from "./event-routing";
 
 export const entityStore = createStore();     // module singleton (decisions/todos)
 export let engineRef: ReturnType<typeof createEngine> | null = null;
@@ -103,10 +104,10 @@ export function CanvasHost() {
       armFramesReady();
     }
 
-    // Shared by the `isLiveProject` callback below and by onEvent — ws-client
-    // filters `projection` deltas by this, but NOT `event` messages (presence
-    // backfill/live events are sent regardless of which project is bound), so
-    // CanvasHost has to apply the same guard itself before touching the engine.
+    // ws-client's filter for `projection` deltas, which ARE scoped to the
+    // bound project. It does not filter `event` messages, but those are no
+    // longer this predicate's business: onEvent asks belongsToProject() which
+    // project the event is FOR, rather than which one the server is bound to.
     const isLiveProject = () => currentProject === sync.boundProject;
 
     const sync = connectLiveSync({
@@ -134,30 +135,28 @@ export function CanvasHost() {
         syncStatus: s, syncVisible: currentProject === sync.boundProject }),
       eventBackfill: { limit: 200 },
       onEvent: (event: any, meta: { live: boolean }) => {
+        // Cross-project drop, for all three kinds. This replaces the per-branch
+        // isLiveProject() checks, which asked whether the SERVER is bound to the
+        // project on screen — a proxy that was only ever right because the old
+        // single-home-repo gate meant one repo's beacons could exist at all. The
+        // refs in these events resolve against the bundle on screen, so the
+        // question is whether the EVENT is for that project, which is what
+        // project_id now answers. Null currentProject stays permissive: the
+        // pre-boot window is handled by bufferPresence below, not by dropping.
+        if (!belongsToProject(event, currentProject)) return;
         if (event?.kind === "show.focus") {
           if (!meta.live) return;                                  // spotlight is live-only — never from backfill
-          if (currentProject !== null && !isLiveProject()) return; // same cross-project drop as presence
           if (!framesReady) return;                                // pre-boot focus is meaningless; agent re-issues
           engine.applySpotlight(event.payload ?? { refs: [] });
           return;
         }
         if (event?.kind === "show.advance") {
           if (!meta.live) return;                                  // live-only, like show.focus
-          if (currentProject !== null && !isLiveProject()) return; // same cross-project drop as presence
           if (!framesReady) return;                                // pre-boot advance is meaningless; agent re-issues
           void handleAdvanceEvent(event.payload?.story_id, event.payload?.step ?? 1);
           return;
         }
         if (event?.kind !== "presence.activity") return;
-        // ws-client doesn't filter `event` messages by project (see isLiveProject
-        // comment above) — drop anything not for the currently-bound project so
-        // a background project's presence can't be misapplied onto this one.
-        // Exception: pre-boot (`currentProject === null`, until fetchProjects
-        // resolves) isLiveProject() is false but `sync.boundProject` is already
-        // set from `hello`, so the drop would silently lose every event in that
-        // window. Buffer instead — boot() flushes once the frame index lands.
-        // The drop only applies once we actually know the active project.
-        if (currentProject !== null && !isLiveProject()) return;
         // Hold until the engine's frame index exists (see framesReady above),
         // otherwise refs resolve to nothing and the session never gets a dot.
         if (!framesReady) { bufferPresence(event, meta); return; }
@@ -183,7 +182,7 @@ export function CanvasHost() {
         const epoch = ++loadEpoch;
         // Re-arm the frame gate around the switch: the old frame index is gone
         // the instant currentProject flips, so anything queued for the prior
-        // project (or arriving mid-await, now guarded by isLiveProject too) must
+        // project (or arriving mid-await, now guarded by belongsToProject too) must
         // not be replayed against it — drop the buffer and re-latch until the
         // new bundle lands.
         framesReady = false;
