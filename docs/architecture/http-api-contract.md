@@ -25,9 +25,9 @@ GET data endpoints the viewer and Mesh read.
 |---|---|---|
 | GET | `/api/health` | Unauthenticated liveness probe — `{ version, ok: true }`, no data. |
 | GET | `/api/freshness` | The live freshness verdict for a project (cheap, no graph pull). |
-| POST | `/api/presence` | Presence-beacon ingest (hook-fed); `{ version, accepted }` ack, never an error status. |
-| POST | `/api/show-focus` | Spotlight ingest for `show({action:"focus"})`; same `{ version, accepted }` ack shape as `/api/presence`. |
-| POST | `/api/show-advance` | Story-paging ingest for `show({action:"advance"})`; same `{ version, accepted }` ack shape. |
+| POST | `/api/presence` | Presence-beacon ingest (hook-fed); accepted when `repo_path` resolves to a registered checkout; `{ version, accepted }` ack, never an error status. |
+| POST | `/api/show-focus` | Spotlight ingest for `show({action:"focus"})`; same registry gate and same `{ version, accepted }` ack shape as `/api/presence`. |
+| POST | `/api/show-advance` | Story-paging ingest for `show({action:"advance"})`; same registry gate and `{ version, accepted }` ack shape. |
 | GET | `/api/projects` | The machine-wide registry of indexed projects + the active one. |
 | GET | `/api/graph` | The full node/edge graph for a project. |
 | GET | `/api/frames` | The frame map (clusters) + virtual-stage dimensions. |
@@ -46,9 +46,13 @@ special-cased past it (`isPresencePost` / `isShowFocusPost` /
 every other route keeps its GET/HEAD-only contract. All three validate their
 body against a dedicated Zod schema (`PresencePostSchema` /
 `ShowFocusPostSchema` / `ShowAdvancePostSchema`), share the same
-`MAX_PRESENCE_BODY` (16 KB) request cap, and gate on
-`canonicalRepoPath(repo_path) === presence.homeRoot` — a repo/project
-mismatch is `accepted: false`, never an error status. See
+`MAX_PRESENCE_BODY` (16 KB) request cap, and gate on registry membership:
+`resolveBeaconTarget(repo_path, registry)`
+([`beacon-target.ts`](../../src/mcp-server/beacon-target.ts)) must resolve the
+posted path to a registered checkout — a path no registered checkout owns is
+`accepted: false`, never an error status. The gate is about *which repo*, not
+*which shape*: it changed nothing in the three request schemas or the ack, so
+`CONTRACT_VERSION` is unaffected by it. See
 [show-your-work.md](show-your-work.md) for the event-bus wiring downstream
 of each ack (`StoriesResponseSchema` / `StoryDetailResponseSchema` back the
 two GET `/api/stories*` routes above; `ShowAdvanceAckResponseSchema` backs

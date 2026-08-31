@@ -54,9 +54,9 @@ import { TodosRepository } from "../todos/repository.js";
 import { TodoLinksRepository } from "../todos/links-repository.js";
 import { StoriesRepository, StoryStepsRepository } from "../stories/repository.js";
 import { parseRef } from "../ids/short-id.js";
-import { canonicalRepoPath } from "../db/git-root.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { createMcpHttpHandler } from "./mcp-http.js";
+import { resolveBeaconTarget, type BeaconTarget } from "./beacon-target.js";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const PROJECT_ROOT = join(__dirname, "..", "..");
@@ -338,11 +338,13 @@ export async function bindWithRetry(
  * @param storiesRepo Optional stories repo for the home project (the
  *   `/api/stories*` routes return `503` without it).
  * @param storyStepsRepo Optional story-steps repo, paired with the above.
- * @param presence Optional presence wiring for `POST /api/presence`. Absent,
- *   the route still 200s but always reports `accepted: false` (no emit).
- *   `homeRoot` MUST already be canonicalized (see {@link canonicalRepoPath})
- *   — the route compares it against the canonicalized `repo_path` from the
- *   POST body so a session in a linked worktree matches the server's home repo.
+ * @param presence Optional presence wiring for the three show-your-work ingest
+ *   routes. Absent, they still 200 but always report `accepted: false` (no emit).
+ *   Acceptance is registry membership: the posted `repo_path` must resolve to a
+ *   registered checkout (see {@link resolveBeaconTarget}), which is how a
+ *   multi-workspace host — one sidecar serving many repos — receives beacons at
+ *   all. The resolved {@link BeaconTarget} is handed to the emitter so the event
+ *   can carry the checkout it belongs to.
  * @returns A {@link ViewerServerHandle}; `port` is `-1` when the bind failed.
  */
 /** Repo root whose decisions store backs the layout's governance force, for the
@@ -369,10 +371,9 @@ export function startViewerServer(
   storiesRepo?: StoriesRepository,
   storyStepsRepo?: StoryStepsRepository,
   presence?: {
-    homeRoot: string;
-    emit: (p: PresencePost) => void;
-    emitFocus: (p: ShowFocusPost) => void;
-    emitAdvance: (p: ShowAdvancePost) => void;
+    emit: (p: PresencePost, t: BeaconTarget) => void;
+    emitFocus: (p: ShowFocusPost, t: BeaconTarget) => void;
+    emitAdvance: (p: ShowAdvancePost, t: BeaconTarget) => void;
   },
   mcpFactory?: () => McpServer,
 ): Promise<ViewerServerHandle> {
@@ -471,10 +472,12 @@ export function startViewerServer(
         if (!parsed.success) { respondError(res, 400, "invalid presence body", cors); return; }
         let accepted = false;
         if (presence) {
-          // canonicalRepoPath collapses worktrees/subdirs to the main checkout root,
-          // so a session in ../repo-wt-x matches the server's home repo.
-          try { accepted = canonicalRepoPath(parsed.data.repo_path) === presence.homeRoot; } catch { accepted = false; }
-          if (accepted) presence.emit(parsed.data);
+          // Registry membership, not a single home repo: one server serves every
+          // indexed checkout, and a linked worktree resolves to its own row so a
+          // per-thread worktree's refs land on the graph they were resolved against.
+          const target = resolveBeaconTarget(parsed.data.repo_path, registry);
+          accepted = target !== null;
+          if (target) presence.emit(parsed.data, target);
         }
         respond(res, PresenceAckResponseSchema, { version: CONTRACT_VERSION, accepted }, freshCtx());
         return;
@@ -488,10 +491,12 @@ export function startViewerServer(
         if (!parsed.success) { respondError(res, 400, "invalid show-focus body", cors); return; }
         let accepted = false;
         if (presence) {
-          // canonicalRepoPath collapses worktrees/subdirs to the main checkout root,
-          // so a session in ../repo-wt-x matches the server's home repo.
-          try { accepted = canonicalRepoPath(parsed.data.repo_path) === presence.homeRoot; } catch { accepted = false; }
-          if (accepted) presence.emitFocus(parsed.data);
+          // Registry membership, not a single home repo: one server serves every
+          // indexed checkout, and a linked worktree resolves to its own row so a
+          // per-thread worktree's refs land on the graph they were resolved against.
+          const target = resolveBeaconTarget(parsed.data.repo_path, registry);
+          accepted = target !== null;
+          if (target) presence.emitFocus(parsed.data, target);
         }
         respond(res, ShowFocusAckResponseSchema, { version: CONTRACT_VERSION, accepted }, freshCtx());
         return;
@@ -505,10 +510,12 @@ export function startViewerServer(
         if (!parsed.success) { respondError(res, 400, "invalid show-advance body", cors); return; }
         let accepted = false;
         if (presence) {
-          // canonicalRepoPath collapses worktrees/subdirs to the main checkout root,
-          // so a session in ../repo-wt-x matches the server's home repo.
-          try { accepted = canonicalRepoPath(parsed.data.repo_path) === presence.homeRoot; } catch { accepted = false; }
-          if (accepted) presence.emitAdvance(parsed.data);
+          // Registry membership, not a single home repo: one server serves every
+          // indexed checkout, and a linked worktree resolves to its own row so a
+          // per-thread worktree's refs land on the graph they were resolved against.
+          const target = resolveBeaconTarget(parsed.data.repo_path, registry);
+          accepted = target !== null;
+          if (target) presence.emitAdvance(parsed.data, target);
         }
         respond(res, ShowAdvanceAckResponseSchema, { version: CONTRACT_VERSION, accepted }, freshCtx());
         return;

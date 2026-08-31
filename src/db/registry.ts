@@ -130,6 +130,16 @@ export class Registry {
       .get(name) as RegistryRepo | undefined) ?? null;
   }
 
+  /** The row owning an exact `root_path`, or null. `root_path` carries a UNIQUE
+   *  constraint, so this is a point lookup on an indexed column — cheap enough
+   *  for the presence hot path (one POST per agent tool call). Callers that need
+   *  symlink tolerance normalise before calling; this compares the stored string. */
+  findByRootPath(root_path: string): RegistryRepo | null {
+    return (this.db
+      .prepare(`SELECT name, root_path, indexed_at, worktree_of, branch FROM repos WHERE root_path = ?`)
+      .get(root_path) as RegistryRepo | undefined) ?? null;
+  }
+
   remove(name: string): void {
     this.db.prepare(`DELETE FROM repos WHERE name = ?`).run(name);
   }

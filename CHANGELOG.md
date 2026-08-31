@@ -18,6 +18,80 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [2.3.2] — 2026-08-31
+
+### Changed
+
+- **Show-your-work ingest accepts a beacon from any registered checkout.** The
+  three ingest routes — `POST /api/presence`, `/api/show-focus` and
+  `/api/show-advance` — used to accept only when
+  `canonicalRepoPath(repo_path) === presence.homeRoot`, where `homeRoot` was the
+  server's own working directory. That encodes one home repo per viewer, which
+  holds only when the server was started inside the repo being watched. A host
+  running **one** server for many workspaces could therefore never have a beacon
+  accepted, and had no way to find out: the ack is a deliberate
+  `200 {accepted:false}` rather than an error, so every presence dot, spotlight
+  and story step was dropped in silence.
+
+  Acceptance is now registry membership. `resolveBeaconTarget`
+  (`src/mcp-server/beacon-target.ts`) resolves the posted path on the **checkout
+  axis** first — a linked worktree is a first-class registry row, so a worktree
+  resolves to itself and its own graph, which is what its repo-relative refs
+  were resolved against — then falls back to `canonicalRepoPath` for a
+  subdirectory or a worktree with no row of its own. A path no registered
+  checkout owns still resolves to null and is still dropped quietly, so a stray
+  beacon from a repo Cortex has never indexed behaves exactly as before.
+
+  Nothing about the wire moved: the three POST body schemas and the
+  `{version, accepted}` ack are untouched, and `CONTRACT_VERSION` stays at `1`.
+  Both senders already posted the checkout root, so no client changed either.
+
+- **The event names the checkout it belongs to.** `presence.activity`,
+  `show.focus` and `show.advance` envelopes now stamp `project_id` with the
+  **resolved registry name** rather than the server's bound `indexerProject`,
+  and their payloads carry the resolved checkout root as an optional
+  `repo_path`. Without this an accepted beacon still could not be routed: two
+  worktrees of one repo were indistinguishable downstream, and each would have
+  painted on the other's canvas. The three envelope builders moved out of
+  `src/index.ts` into pure functions in `src/events/show-events.ts`.
+
+  `repo_path` is **optional** on all three payloads, so events already inside
+  the 24 h retention window replay through the backfill without it.
+
+### Fixed
+
+- **The viewer drops a show-your-work event for a project it is not showing.**
+  `CanvasHost`'s `onEvent` guarded each of the three kinds with
+  `isLiveProject()`, which asks whether the *server* is bound to the project on
+  screen. That was only ever a working proxy because the single-home-repo gate
+  meant one repo's beacons could exist at all; with acceptance widened it would
+  have dropped every newly-accepted event. It is replaced by one hoisted
+  `belongsToProject(event, currentProject)`
+  (`src/viewer/app/event-routing.ts`), which asks which project the *event* is
+  for. The predicate stays permissive for an empty `project_id` (pre-upgrade
+  backfill) and for a null `currentProject` (pre-boot, where presence is
+  buffered rather than dropped). `isLiveProject` itself is unchanged and still
+  filters `projection` deltas inside ws-client.
+
+- **`show({action:"focus"/"advance"})`'s rejection text no longer claims a
+  different repo owns the viewer.** It now reads *"Viewer rejected (this repo is
+  not in the viewer's registry)"*, which is what a rejection means once the
+  viewer is no longer owned by one repo.
+
+### Added
+
+- **`Registry.findByRootPath(root_path)`** — a point lookup on the `repos`
+  table's UNIQUE `root_path` column, backing the beacon resolver's hot path.
+
+- **Guidance for embedding hosts: pin the target with `CORTEX_PRESENCE_URL`.**
+  `hooks/show-presence.sh` probes `CORTEX_VIEWER_PORT`, then `3333`, then
+  `3334`. A beacon that fell through to an unrelated personally-run viewer used
+  to be rejected there by that viewer's home-repo gate; now it would be
+  accepted. A host that runs its own server should set `CORTEX_PRESENCE_URL`,
+  which the hook uses as-is with no probing, so a beacon reaches that host's
+  viewer or nowhere — server down means presence goes dark, never that it goes
+  somewhere else. See `docs/architecture/show-your-work.md`.
+
 ## [2.3.1] — 2026-08-30
 
 ### Fixed
@@ -2629,6 +2703,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[2.3.2]: https://github.com/ruevu/cortex/releases/tag/v2.3.2
 [2.3.1]: https://github.com/ruevu/cortex/releases/tag/v2.3.1
 [2.3.0]: https://github.com/ruevu/cortex/releases/tag/v2.3.0
 [2.2.3]: https://github.com/ruevu/cortex/releases/tag/v2.2.3

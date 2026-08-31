@@ -27,6 +27,9 @@ export interface EventEnvelope {
 export interface PresenceActivityPayload {
   session_id: string;
   workspace: string;
+  /** Resolved checkout root the beacon belongs to. Optional: events persisted
+   *  before 2026-08-31 have none and still replay through the backfill window. */
+  repo_path?: string;
   activity: 'studied' | 'edited' | 'traced' | 'consulted';
   refs: string[];
 }
@@ -34,11 +37,15 @@ export interface PresenceActivityPayload {
 export interface ShowFocusPayload {
   refs: string[];
   note?: string;
+  /** Resolved checkout root; see PresenceActivityPayload.repo_path. */
+  repo_path?: string;
 }
 
 export interface ShowAdvancePayload {
   story_id: string;
   step: number;          // 1-based
+  /** Resolved checkout root; see PresenceActivityPayload.repo_path. */
+  repo_path?: string;
 }
 
 /**
