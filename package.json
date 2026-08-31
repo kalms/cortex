@@ -1,6 +1,6 @@
 {
   "name": "cortex",
-  "version": "2.3.1",
+  "version": "2.3.2",
   "description": "Knowledge graph MCP server with decision provenance",
   "license": "Apache-2.0",
   "type": "module",
