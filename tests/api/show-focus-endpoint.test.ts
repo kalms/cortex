@@ -1,28 +1,42 @@
 // tests/api/show-focus-endpoint.test.ts
-// Integration test for POST /api/show-focus: canonical repo gate, bus emit, and
+// Integration test for POST /api/show-focus: registry gate, bus emit, and
 // the 405 contract for other routes/methods (mirrors presence-endpoint.test.ts).
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { GraphStore } from "../../src/graph/store.js";
+import { Registry } from "../../src/db/registry.js";
 import { startViewerServer, type ViewerServerHandle } from "../../src/mcp-server/api.js";
 import type { ShowFocusPost } from "../../src/mcp-server/api-schemas.js";
+import type { BeaconTarget } from "../../src/mcp-server/beacon-target.js";
 
 let handle: ViewerServerHandle;
 let base: string;
 let store: GraphStore;
 let dir: string;
-const emitted: ShowFocusPost[] = [];
+let home: string;
+let wt: string;
+const emitted: Array<{ post: ShowFocusPost; target: BeaconTarget }> = [];
 
 beforeAll(async () => {
   process.env.CORTEX_VIEWER_PORT = "0";
-  dir = mkdtempSync(join(tmpdir(), "cortex-show-focus-"));
+  dir = realpathSync(mkdtempSync(join(tmpdir(), "cortex-show-focus-")));
+  // Isolate the registry: startViewerServer opens defaultRegistryPath(), which
+  // would otherwise be the developer's real one (todo T-zkfx).
+  process.env.CORTEX_REGISTRY_DB = join(dir, "registry.db");
+  home = join(dir, "home");
+  wt = join(dir, "home-wt");
+  mkdirSync(home); mkdirSync(wt);
+  const reg = new Registry(process.env.CORTEX_REGISTRY_DB);
+  reg.register("home", home, "t");
+  reg.register("home-wt", wt, "t", { worktree_of: home, branch: "feature/x" });
+  reg.close();
+
   store = new GraphStore(join(dir, "db"));
   handle = await startViewerServer(store, null, undefined, undefined, undefined, undefined, undefined, undefined, {
-    homeRoot: "/canonical/home",
     emit: () => {},
-    emitFocus: (p) => emitted.push(p),
+    emitFocus: (post, target) => emitted.push({ post, target }),
     emitAdvance: () => {},
   });
   base = `http://127.0.0.1:${handle.port}`;
@@ -31,6 +45,7 @@ beforeAll(async () => {
 afterAll(() => {
   handle?.close();
   store?.close();
+  delete process.env.CORTEX_REGISTRY_DB;
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -42,29 +57,35 @@ const post = (body: unknown) =>
   });
 
 describe("POST /api/show-focus", () => {
-  const good = { repo_path: "/canonical/home", refs: ["src/a.ts"], note: "look here" };
+  const good = () => ({ repo_path: home, refs: ["src/a.ts"], note: "look here" });
 
-  it("accepts a matching repo and emits", async () => {
-    const res = await post(good);
+  it("accepts a registered checkout and emits with its target", async () => {
+    const res = await post(good());
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ accepted: true });
     expect(emitted).toHaveLength(1);
-    expect(emitted[0]).toMatchObject({ refs: ["src/a.ts"], note: "look here" });
+    expect(emitted[0]!.post).toMatchObject({ refs: ["src/a.ts"], note: "look here" });
+    expect(emitted[0]!.target).toEqual({ name: "home", root_path: home });
   });
 
-  it("drops a non-matching repo without emitting", async () => {
-    const res = await post({ ...good, repo_path: "/somewhere/else" });
-    expect(res.status).toBe(200);
+  it("accepts a registered worktree and targets the worktree, not its parent", async () => {
+    const res = await post({ ...good(), repo_path: wt });
+    expect(await res.json()).toMatchObject({ accepted: true });
+    expect(emitted[1]!.target).toEqual({ name: "home-wt", root_path: wt });
+  });
+
+  it("drops an unregistered repo without emitting", async () => {
+    const res = await post({ ...good(), repo_path: "/somewhere/else" });
     expect(await res.json()).toMatchObject({ accepted: false });
-    expect(emitted).toHaveLength(1); // unchanged
+    expect(emitted).toHaveLength(2); // unchanged
   });
 
   it("accepts empty refs (clear is a valid focus)", async () => {
-    const res = await post({ repo_path: "/canonical/home", refs: [] });
+    const res = await post({ repo_path: home, refs: [] });
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ accepted: true });
-    expect(emitted).toHaveLength(2);
-    expect(emitted[1]).toMatchObject({ refs: [] });
+    expect(emitted).toHaveLength(3);
+    expect(emitted[2]!.post).toMatchObject({ refs: [] });
   });
 
   it("400s an invalid body", async () => {

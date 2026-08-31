@@ -20,7 +20,6 @@ import { TodoLinksRepository } from "./todos/links-repository.js";
 import { StoriesRepository, StoryStepsRepository } from "./stories/repository.js";
 import type { WireNode } from "./events/types.js";
 import { newUlid } from "./events/ulid.js";
-import { canonicalRepoPath } from "./db/git-root.js";
 import { resolveBoundProject } from "./mcp-server/bound-project.js";
 
 const dbPath = resolveCortexDbPath();
@@ -203,7 +202,6 @@ const { port, httpServer } = await startViewerServer(
   storiesRepo,
   storyStepsRepo,
   {
-    homeRoot: canonicalRepoPath(cwd),
     emit: (p) => bus.emit({
       id: newUlid(),
       kind: "presence.activity",
