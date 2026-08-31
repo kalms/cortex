@@ -109,7 +109,7 @@
       "violation_rules": {}
     },
     {
-      "slug": "local/anthill-cloud",
+      "slug": "local/private-monorepo",
       "ok": true,
       "cluster_count": 10,
       "noise_rate": 0.5302013422818792,

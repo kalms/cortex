@@ -10,7 +10,7 @@
  * that calibrates W_DOMAIN_RUNTIME's ~0.8 runtime bar).
  *
  * Git-cloned corpus projects are deregistered after the run (teardown), like
- * eval-all; local fixtures (self/cortex, anthill-cloud) are left alone.
+ * eval-all; local fixtures (self/cortex) are left alone.
  *
  * Usage:  tsx scripts/frame-extraction/eval-layers.ts [--only <slug>] [--keep]
  *   --out <path>   default .tmp/frame-extraction/eval-layers.json

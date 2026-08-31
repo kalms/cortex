@@ -1,8 +1,8 @@
 # Field Report — New CLI, Cached Re-indexing, and Lingering Coverage Gaps
 
 **Date:** 2026-05-26
-**Evaluator:** Claude (Opus 4.7, 1M context), session in `/Users/rka/Development/anthill-cloud`
-**Subject repo:** anthill-cloud — same Turborepo monorepo as the 2026-05-20 and 2026-05-21 reports
+**Evaluator:** Claude (Opus 4.7, 1M context), session in `/Users/rka/Development/private-monorepo`
+**Subject repo:** private-monorepo — same Turborepo monorepo as the 2026-05-20 and 2026-05-21 reports
 **Re-indexed at start of session:** 5,537 nodes / 6,403 edges (imported from content-hash cache `73731b3da2f3…`, near-instant)
 **Prompt:** "What can Cortex tell you about the repo? Is the output from Cortex more useful now? (It has a new CLI for you to peruse and other nice upgrades)"
 
@@ -18,7 +18,7 @@ Six observations follow, ordered by load-bearing-ness for an LLM agent operating
 2. **Content-hash build cache works.** Re-indexing returned `imported from cache key 73731b3da2f3…` instantly, with no parsing. This makes the "always re-index at session start" instruction in the SessionStart hook costless.
 3. **New edge types are visible and useful.** `SEMANTICALLY_RELATED` (66), `SIMILAR_TO` (14), `FILE_CHANGES_WITH` (35), `CONFIGURES` (35) all appear in `get_architecture` output. None of these existed in the 2026-05-20 schema dump.
 4. **Vue coverage has improved at the *symbol* layer but not the *file* layer.** Functions defined inside `.vue` files now show up in the graph (e.g. `apps.arcane.app.pages.arcane.discover.startConversation`). But `.vue` files themselves are still not `file` nodes — `MATCH (f:file) WHERE f.qualified_name CONTAINS ".vue"` returns 0. Pinia stores still aren't a node class (`useFoundationStore` returns no symbols).
-5. **Lockfile entries leak into the `route` label.** Routes now total 183, but a significant fraction are package tarball URLs (`https://anthill-code-artifacts-…/win32-x64-0.28.0.tgz`) extracted from pnpm-lock.yaml. Inflates counts and pollutes route-listing queries.
+5. **Lockfile entries leak into the `route` label.** Routes now total 183, but a significant fraction are package tarball URLs (`https://private-code-artifacts-…/win32-x64-0.28.0.tgz`) extracted from pnpm-lock.yaml. Inflates counts and pollutes route-listing queries.
 6. **`cortex index changes` errors with "project not found".** Minor CLI bug — `cortex index status` works fine on the same project.
 
 ---
@@ -55,7 +55,7 @@ The MCP tools are still there and still work — but for exploratory work the CL
 ### Friction that remains
 
 - `cortex code show <relative-path>` rejects filesystem-style paths (e.g. `apps/activator/app/stores/_foundationFactory.ts:createFoundationStore`). The "find first to get the canonical qn, then show" two-step is still required for anything but bare names.
-- Error messages helpfully suggest `cortex help qualified-names` — good. But the qualified-name form (`Users-rka-Development-anthill-cloud.apps.activator.app.stores._foundationFactory.createFoundationStore`) is awkward to type and remember. Accepting filesystem paths directly would close the gap.
+- Error messages helpfully suggest `cortex help qualified-names` — good. But the qualified-name form (`Users-rka-Development-private-monorepo.apps.activator.app.stores._foundationFactory.createFoundationStore`) is awkward to type and remember. Accepting filesystem paths directly would close the gap.
 
 ---
 
@@ -96,10 +96,10 @@ I didn't exercise these edges in queries this session (the session was about tou
 The 2026-05-21 report flagged that `.vue` files were entirely invisible to the graph. That has partly improved: functions defined inside `<script setup>` blocks now appear as `function` nodes with sensible qualified names. Example from this session:
 
 ```
-Users-rka-Development-anthill-cloud.apps.arcane.app.pages.arcane.discover.startConversation
-Users-rka-Development-anthill-cloud.apps.arcane.app.pages.arcane.discover.handleSubmit
-Users-rka-Development-anthill-cloud.apps.cloud.app.pages.onboarding.slugify
-Users-rka-Development-anthill-cloud.apps.cloud.app.pages.onboarding.submit
+Users-rka-Development-private-monorepo.apps.arcane.app.pages.arcane.discover.startConversation
+Users-rka-Development-private-monorepo.apps.arcane.app.pages.arcane.discover.handleSubmit
+Users-rka-Development-private-monorepo.apps.cloud.app.pages.onboarding.slugify
+Users-rka-Development-private-monorepo.apps.cloud.app.pages.onboarding.submit
 ```
 
 `apps/arcane/app/pages/arcane/discover.vue` is a real `.vue` file and those are real function declarations inside its `<script setup>`. The parser is reading SFCs now.
@@ -147,7 +147,7 @@ ERROR: project not found
 
 ```
 {
-  "project": "Users-rka-Development-anthill-cloud",
+  "project": "Users-rka-Development-private-monorepo",
   "nodes": 5537,
   "edges": 6403,
   "status": "ready"
@@ -178,7 +178,7 @@ These would each be a worthwhile separate session.
 2. **Recognize `defineStore` / Pinia patterns**, or at minimum surface the `useXxxStore` identifier as its own function node. Pinia is the de-facto data-access layer in Nuxt apps and the current invisibility is a real blind spot.
 3. **Separate lockfile-derived URLs from real routes**, or skip `pnpm-lock.yaml` during indexing. The route-label inflation hurts a common query.
 4. **Fix `cortex index changes` project resolution**. Small bug, but the SessionStart hook copy refers to it.
-5. **Seed decisions for the heavy architectural calls in anthill-cloud** — layered apps/cloud composition, semantic utility class system, promotion chain, governance guards. The repo has rich CLAUDE.md and memory-file rationale that's currently invisible to `cortex decision why`. This is project-side work, not Cortex-side, but the tool's value here is gated on someone doing it.
+5. **Seed decisions for the heavy architectural calls in private-monorepo** — layered apps/cloud composition, semantic utility class system, promotion chain, governance guards. The repo has rich CLAUDE.md and memory-file rationale that's currently invisible to `cortex decision why`. This is project-side work, not Cortex-side, but the tool's value here is gated on someone doing it.
 6. **Accept filesystem-style paths in `cortex code show`** (and similar). Saves the find-first-then-show two-step for the common case.
 
 ---

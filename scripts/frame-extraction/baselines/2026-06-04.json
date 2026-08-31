@@ -126,7 +126,7 @@
       }
     },
     {
-      "slug": "local/anthill-cloud",
+      "slug": "local/private-monorepo",
       "ok": true,
       "cluster_count": 9,
       "noise_rate": 0.4899328859060403,

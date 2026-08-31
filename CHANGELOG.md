@@ -18,6 +18,29 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [2.3.2] — 2026-08-31
+
+Removes machine-specific paths and a private local fixture from everything the
+project ships or runs. Shipped CLI help advertised an eval target that no longer
+exists and illustrated qualified names with one developer's home directory; the
+frame-extraction corpus wired a local checkout by absolute path that only ever
+resolved on one machine.
+
+### Changed
+
+- **CLI help examples are generic and runnable.** `cortex eval` and
+  `cortex decision rehome` now name a public eval target and placeholder paths
+  instead of a target that was removed in 2.3.0 and a personal absolute path.
+  The qualified-name and project-naming topics illustrate the format with a
+  neutral example path.
+- **The frame-extraction corpus drops its local-only nuxt-app fixture.** It was
+  reachable only through a hardcoded absolute path. `nuxt/ui` already covers the
+  `nuxt-app` archetype, so corpus coverage is unchanged; the local-only fixture
+  invariant is now asserted against `self/cortex`, which remains.
+- Historical field reports, research notes and eval baselines refer to that
+  checkout by a neutral identifier. The measurements and findings are unchanged
+  — only the name is.
+
 ## [2.3.1] — 2026-08-30
 
 ### Fixed
@@ -116,7 +139,7 @@ attribution rates falling 5-18 points — every one flagged as a regression.
 - Assertions are scoped into packs (`universal` / `nuxt`) and selected per
   target, so ecosystem-specific and portable checks coexist in one runner.
 - **The fourth default target is now `open-pencil`**, replacing the private
-  `anthill-cloud` checkout. The old entry pointed at a proprietary repository
+  `private-monorepo` checkout. The old entry pointed at a proprietary repository
   through a machine-specific `local_path`, so nobody else could run the default
   suite and the numbers it produced were unreproducible. `open-pencil`
   (Vue 3 + Tauri, ~2,400 TS and ~240 Vue files) fills the same
@@ -2042,7 +2065,7 @@ re-verified against the current codebase before implementation.
   `D-marq`): across the eval-layers corpus, every successful repo stratifies
   positively on Spearman(y, sink) — mean ≈ 0.77, median ≈ 0.74, range 0.51–0.95
   (vueuse 0.95, TanStack/table 0.95, trpc 0.83, rubygems 0.78, cortex 0.74,
-  saleor 0.72, peft 0.71, click 0.70, anthill 0.58, nuxt/ui 0.51), with no
+  saleor 0.72, peft 0.71, click 0.70, private-monorepo 0.58, nuxt/ui 0.51), with no
   negative or near-zero result on any archetype (vue/react/ts-monorepo/nuxt/
   go/python/django/rails). The metric under-states the real effect (it uses
   `0.5` for flowless frames where the layout uses per-layer `NOMINAL_SINK`). The
@@ -2364,7 +2387,7 @@ Agentic-experience field report §5 items **P1** and **P3**, shipped together.
   ([`src/frame-extraction/frame-kind.ts`](src/frame-extraction/frame-kind.ts)):
   Nitro/h3 method-suffixed route files (`*.{get,post,put,patch,delete,head,options}.{ts,js,…}`,
   case-insensitive) whose path contains an `api`/`routes` segment now contribute
-  to **orchestration**. Observe-phase measurement on anthill-cloud found these
+  to **orchestration**. Observe-phase measurement on private-monorepo found these
   handler frames are pure sources (sink 0.0), so the surface pair tied and the
   canonical tie-break starved orchestration to zero frames. Weight is aliased to
   `W_PATH` (not a restated literal) so the documented "same weight as a path
@@ -2629,6 +2652,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[2.3.2]: https://github.com/ruevu/cortex/releases/tag/v2.3.2
 [2.3.1]: https://github.com/ruevu/cortex/releases/tag/v2.3.1
 [2.3.0]: https://github.com/ruevu/cortex/releases/tag/v2.3.0
 [2.2.3]: https://github.com/ruevu/cortex/releases/tag/v2.2.3

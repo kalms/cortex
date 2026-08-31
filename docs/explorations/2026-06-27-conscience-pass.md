@@ -160,7 +160,7 @@ as direction, to be promoted to TODOs/decisions when picked up.
 7. **CI gate = `check_contracts` + decision-contradiction check** — block a diff
    that violates a contract or contradicts an `active` decision.
 8. **Cross-repo pattern queries** — `query_graph` across the registry (cortex /
-   mesh / anthill-cloud-sales) to track pattern propagation between codebases.
+   mesh / private-sales-app) to track pattern propagation between codebases.
 
 ---
 

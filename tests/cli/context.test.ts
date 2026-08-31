@@ -29,8 +29,8 @@ describe("context — project state detection", () => {
   });
 
   it("derives project name from absolute path", () => {
-    expect(deriveProjectName("/Users/rka/Development/anthill-cloud"))
-      .toBe("Users-rka-Development-anthill-cloud");
+    expect(deriveProjectName("/Users/rka/Development/private-monorepo"))
+      .toBe("Users-rka-Development-private-monorepo");
   });
 
   it("detects 'indexed' when .cortex/graph.db exists alongside .git", () => {

@@ -1,8 +1,8 @@
 # Field Assessment: Cortex on a Nuxt 4 Monorepo
 
 **Date:** 2026-05-20
-**Evaluator:** Claude (Opus 4.7), session in `/Users/rka/Development/anthill-cloud`
-**Subject repo:** anthill-cloud — Turborepo monorepo, Nuxt 4 apps + TS packages
+**Evaluator:** Claude (Opus 4.7), session in `/Users/rka/Development/private-monorepo`
+**Subject repo:** private-monorepo — Turborepo monorepo, Nuxt 4 apps + TS packages
 **Index size:** 5,010 nodes / 5,746 edges (indexed 2026-05-20T02:37:58Z)
 
 This is a candid evaluation of how Cortex performed as a "powerful aid" for an
@@ -100,7 +100,7 @@ it in 50ms with perfect recall. The indexer isn't extracting `$fetch(…)` or
 
 ### 5. No decisions / ADRs recorded
 
-`search_decisions("anthill")` and `search_decisions("cloud")` both returned
+`search_decisions("private-monorepo")` and `search_decisions("cloud")` both returned
 no results. The repo has 15+ spec documents under `docs/superpowers/specs/`
 that are explicitly design-decision records. None have been promoted to
 Cortex decisions, which means `why_was_this_built` falls back to whatever
@@ -112,7 +112,7 @@ text-search Cortex does over indexed sections — i.e. roughly equivalent to
 The session-start hook printed:
 
 ```
-Repo: /Users/rka/Development/anthill-cloud
+Repo: /Users/rka/Development/private-monorepo
 Index state: not-indexed
 ```
 
@@ -123,7 +123,7 @@ trust in the routing prompt.
 ### 7. `search_graph` without `project=` returns wrong project
 
 Calling `search_graph(label="route")` without an explicit `project` argument
-returned routes from the *Cortex* project, not anthill-cloud. The "active
+returned routes from the *Cortex* project, not private-monorepo. The "active
 project" default isn't sticky to CWD; the tools need a project arg every
 time. Easy to forget, easy to misread results.
 
@@ -237,8 +237,8 @@ Even with the gaps above, there are queries that genuinely beat shell tools:
   compute without a graph layer. Worth surfacing more prominently.
 - **"What's semantically similar to this spec doc?"** — embeddings on
   indexed sections are something `grep` can't do.
-- **Cross-project queries** — once we index `anthill-platform-core` and
-  `anthill-design-system` separately, queries across the three become
+- **Cross-project queries** — once we index `private-platform-core` and
+  `private-design-system` separately, queries across the three become
   uniquely valuable. (Today, all three are linked via pnpm overrides; a
   graph that *spans* them would be a real differentiator.)
 

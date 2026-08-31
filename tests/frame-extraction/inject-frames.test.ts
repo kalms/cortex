@@ -224,7 +224,7 @@ describe("pickFrameLabel — dominant-segment fallback (cluster:N bug)", () => {
   it("labels a devbox.json cluster 'devbox' via the dominant filename stem", () => {
     const paths = [
       "modules/rosalind-strings/devbox.json",
-      "modules/anthill-i-o/devbox.json",
+      "modules/private-i-o/devbox.json",
       "modules/deepl-helper/devbox.json",
     ];
     // Directories all differ; only the shared filename stem characterises it.

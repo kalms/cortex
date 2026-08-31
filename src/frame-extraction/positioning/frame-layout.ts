@@ -346,7 +346,7 @@ export function layoutFrames(
   // pre-slice output (its forceCenter already centers the cloud).
   //
   // The y half closes T-whyh: D-vmhy was corrected to recenter both axes after
-  // anthill-cloud (surface-heavy yet leaning DOWN) disproved the earlier claim
+  // private-monorepo (surface-heavy yet leaning DOWN) disproved the earlier claim
   // that the sink bands leave y "symmetric by construction". A uniform translate
   // preserves the relative top→bottom depth ordering; only the absolute vertical
   // offset is lost, and that signal is already dominated by the link springs.

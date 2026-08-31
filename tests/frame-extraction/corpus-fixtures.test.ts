@@ -25,8 +25,8 @@ describe("corpus framework fixtures", () => {
       expect(hasGit || hasLocal).toBe(true);
     }
   });
-  it("anthill-cloud is a local-only fixture", () => {
-    const a = corpus.repos.find((r) => r.slug.includes("anthill"));
+  it("self/cortex is a local-only fixture", () => {
+    const a = corpus.repos.find((r) => r.slug === "self/cortex");
     expect(a).toBeDefined();
     expect(a!.git).toBeNull();
     expect(a!.local_path).toBeTruthy();
