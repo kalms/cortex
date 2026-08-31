@@ -61,6 +61,30 @@ describe("Registry", () => {
     reg.register("name-a", "/shared/path", "t");
     expect(() => reg.register("name-b", "/shared/path", "t")).toThrow();
   });
+
+  it("finds a repo by root_path", () => {
+    reg.register("a-b-c", "/a/b/c", "2026-06-05T00:00:00.000Z");
+    expect(reg.findByRootPath("/a/b/c")).toMatchObject({ name: "a-b-c", root_path: "/a/b/c" });
+  });
+
+  it("returns null for an unknown root_path", () => {
+    reg.register("a-b-c", "/a/b/c", "2026-06-05T00:00:00.000Z");
+    expect(reg.findByRootPath("/nope")).toBeNull();
+  });
+
+  it("finds a worktree row by its own root_path, carrying worktree_of", () => {
+    reg.register("wt", "/a/b/c-wt", "t", { worktree_of: "/a/b/c", branch: "feature/x" });
+    expect(reg.findByRootPath("/a/b/c-wt")).toMatchObject({
+      name: "wt", root_path: "/a/b/c-wt", worktree_of: "/a/b/c", branch: "feature/x",
+    });
+  });
+
+  it("follows a row moved to a new root_path", () => {
+    reg.register("a-b-c", "/a/b/c", "t");
+    reg.register("a-b-c", "/moved", "t");
+    expect(reg.findByRootPath("/a/b/c")).toBeNull();
+    expect(reg.findByRootPath("/moved")).toMatchObject({ name: "a-b-c" });
+  });
 });
 
 describe("defaultRegistryPath", () => {
