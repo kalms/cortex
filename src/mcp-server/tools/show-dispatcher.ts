@@ -97,7 +97,7 @@ export async function showAction(ctx: RepoContext, args: ShowArgs) {
           return ok("No viewer reachable (start the MCP server / check CORTEX_VIEWER_PORT)");
         }
         if (!accepted) {
-          return ok("Viewer rejected (different repo owns the viewer)");
+          return ok("Viewer rejected (this repo is not in the viewer's registry)");
         }
         return ok(
           refs.length > 0
@@ -142,7 +142,7 @@ export async function showAction(ctx: RepoContext, args: ShowArgs) {
           return ok("No viewer reachable — story persists; open it via its viewer_url");
         }
         if (!accepted) {
-          return ok("Viewer rejected (different repo owns the viewer)");
+          return ok("Viewer rejected (this repo is not in the viewer's registry)");
         }
         return ok(`Story ${resolved.id} → step ${step}/${resolved.step_count} pushed to viewer`);
       }

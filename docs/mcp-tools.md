@@ -659,9 +659,10 @@ Hold a spotlight on `refs` in the connected viewer.
   - `Spotlight set (<n> refs) — clear with refs: []` — delivered, accepted,
     non-empty refs.
   - `Spotlight cleared` — delivered, accepted, empty/omitted refs.
-  - `Viewer rejected (different repo owns the viewer)` — delivered, but the
-    viewer's home repo doesn't match `repo_path`
-    (`canonicalRepoPath(repo_path) !== homeRoot`).
+  - `Viewer rejected (this repo is not in the viewer's registry)` — delivered, but
+    `repo_path` resolves to no registered checkout
+    (`resolveBeaconTarget(repo_path, registry) === null`); index the repo and
+    it is accepted.
   - `No viewer reachable (start the MCP server / check CORTEX_VIEWER_PORT)` —
     every candidate port failed or timed out.
 - **Why:** a discretionary presentation aid — point the live viewer at the
@@ -708,8 +709,8 @@ Page a live viewer to a step of an already-created story. **1-based** —
 - **Returns one of these result texts:**
   - `` Story <id> → step <n>/<step_count> pushed to viewer `` — delivered,
     accepted.
-  - `Viewer rejected (different repo owns the viewer)` — delivered, wrong
-    repo.
+  - `Viewer rejected (this repo is not in the viewer's registry)` — delivered, but the
+    repo is not indexed.
   - `No viewer reachable — story persists; open it via its viewer_url` —
     every candidate port failed. **This is a normal outcome, not an
     error** — the story already exists and its `viewer_url` still opens it

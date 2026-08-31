@@ -59,19 +59,25 @@ mcp__cortex__decision           16 KB cap,                                      
    failure is a silent `exit 0` — the hook never blocks the agent.
 2. **`POST /api/presence`** (`src/mcp-server/api.ts`) — validates the body
    against `PresencePostSchema` (`src/mcp-server/api-schemas.ts`, 16 KB
-   request-body cap via `MAX_PRESENCE_BODY`), checks
-   `canonicalRepoPath(repo_path) === presence.homeRoot` (so a worktree
-   session's `repo_path` resolves to the same project as the main checkout —
-   `canonicalRepoPath` in `src/db/git-root.ts` walks up to the main worktree
-   root), and only then calls `presence.emit(parsed.data)`. The response is
-   always `{ version, accepted: boolean }` — `accepted:false` on a
-   repo/project mismatch or when no `presence` wiring was passed to
-   `startViewerServer` (never an error status), so a stray beacon from an
-   unrelated repo is dropped, not surfaced as a failure to the hook.
-3. **Bus wiring** (`src/index.ts`) — the `presence.emit` callback wraps the
-   POST body into a full `Event` envelope: `newUlid()` for `id`,
+   request-body cap via `MAX_PRESENCE_BODY`), checks that `repo_path`
+   resolves to a registered checkout via `resolveBeaconTarget`
+   (`src/mcp-server/beacon-target.ts`) — the checkout axis first, so a linked
+   worktree resolves to its own row and its own graph, then
+   `canonicalRepoPath` for a subdir or an unregistered worktree — and only
+   then calls `presence.emit(parsed.data, target)`. The response is
+   always `{ version, accepted: boolean }` — `accepted:false` when no
+   registered checkout owns the path, or when no `presence` wiring was passed to
+   `startViewerServer` (never an error status), so a stray beacon from a repo
+   Cortex has never indexed is dropped, not surfaced as a failure to the hook.
+3. **Bus wiring** (`src/index.ts` → `src/events/show-events.ts`) — the
+   `presence.emit` callback wraps the POST body into a full `Event` envelope
+   via `presenceActivityEvent()`: `newUlid()` for `id`,
    `kind: "presence.activity"`, `actor: "claude"`, `created_at: Date.now()`,
-   and calls `bus.emit(...)`. From here it's the **same** EventBus → worker
+   `project_id` the **resolved registry name** (not the server's
+   `indexerProject` — one server serves many checkouts, so the event names the
+   one it is for), and payload `{session_id, workspace, repo_path, activity,
+   refs}` where `repo_path` is the resolved checkout root. It then calls
+   `bus.emit(...)`. From here it's the **same** EventBus → worker
    → WS pipeline every other event kind uses (see
    [graph-ui.md](graph-ui.md#event-flow-claude-creates-a-decision)).
 4. **Worker** (`src/events/worker.ts`) — `processEvent()` persists via
@@ -137,6 +143,16 @@ POSTs to whichever process holds that port — this is precisely how presence
 from multiple concurrent sessions (including worktree sessions on the same
 project) converges into one viewer tab. If the port owner exits, presence
 goes dark until another process binds it; accepted as a v1 limitation.
+
+### Pinning the target (embedding hosts)
+
+An embedding host that runs its own server — Mesh runs one sidecar for every
+open workspace — should set `CORTEX_PRESENCE_URL`, which the hook uses as-is
+with no probing. Without it the hook falls back to probing `3333`/`3334`, and
+since acceptance became registry membership a beacon reaching an unrelated
+viewer would now be accepted there rather than rejected. Pinned, a beacon
+reaches that host's viewer or nowhere: server down means presence goes dark,
+never that it goes somewhere else.
 
 ### Port discovery + sentinel
 
@@ -338,10 +354,22 @@ so a stale in-flight loader (e.g. project A's boot resolving after a switch
 to B has started) can't re-arm the gate against the wrong project's frame
 index. `ws-client.js`'s `event`/`backfill_page` messages are **not**
 filtered by bound project the way `projection` deltas are, so `CanvasHost`
-applies its own `isLiveProject()` guard before touching the engine — with a
-pre-boot exception (buffer instead of drop) for the window between the WS
-`hello` (which already knows `boundProject`) and `fetchProjects()` resolving
-(where `currentProject` is still `null`).
+applies its own guard before touching the engine:
+`belongsToProject(event, currentProject)`
+([`event-routing.ts`](../../src/viewer/app/event-routing.ts)), hoisted to the
+top of `onEvent` and covering all three kinds. It compares the event's
+`project_id` — the checkout the beacon was accepted for — against the project
+on screen, which is the right question now that acceptance is registry
+membership and several repos' beacons can coexist. (It replaced an
+`isLiveProject()` check, which asked whether the *server* was bound to the
+project on screen; that was only ever a working proxy because the old
+single-home-repo gate meant one repo's beacons could exist at all.
+`isLiveProject` still guards `projection` deltas inside ws-client.)
+The predicate is permissive in two cases: an empty `project_id` (events
+persisted before the field was stamped, still inside the 24 h retention
+window) and a `null` `currentProject` — the window between the WS `hello`
+and `fetchProjects()` resolving, where presence is buffered rather than
+dropped.
 
 ## Focus spotlight (slice 2a)
 
@@ -384,13 +412,18 @@ show-dispatcher.ts         POST /api/show-focus  →   bus.emit(        processE
 2. **`POST /api/show-focus`** ([`api.ts`](../../src/mcp-server/api.ts)) —
    validates against `ShowFocusPostSchema`
    ([`api-schemas.ts`](../../src/mcp-server/api-schemas.ts)), the same
-   `MAX_PRESENCE_BODY` (16 KB) cap and `canonicalRepoPath(repo_path) ===
-   presence.homeRoot` gate `/api/presence` uses, then calls
-   `presence.emitFocus(parsed.data)` on accept. Response is always
-   `{version, accepted}` — a repo mismatch is `accepted:false`, never an
-   error status.
-3. **Bus wiring** ([`src/index.ts`](../../src/index.ts)) — `emitFocus` wraps
-   the POST body into a full `Event` envelope (`kind: "show.focus"`) and
+   `MAX_PRESENCE_BODY` (16 KB) cap and the same `resolveBeaconTarget`
+   registry gate `/api/presence` uses (`src/mcp-server/beacon-target.ts`:
+   the checkout axis first, so a linked worktree resolves to its own row and
+   its own graph, then `canonicalRepoPath` for a subdir or an unregistered
+   worktree), then calls `presence.emitFocus(parsed.data, target)` on accept.
+   Response is always `{version, accepted}` — an unregistered repo is
+   `accepted:false`, never an error status.
+3. **Bus wiring** ([`src/index.ts`](../../src/index.ts) →
+   [`show-events.ts`](../../src/events/show-events.ts)) — `emitFocus` wraps
+   the POST body into a full `Event` envelope via `showFocusEvent()`
+   (`kind: "show.focus"`, `project_id` the resolved registry name, payload
+   `{refs, note, repo_path}` with the resolved checkout root) and
    calls `bus.emit(...)` — the same EventBus → worker → WS pipeline every
    other event kind rides (see
    [graph-ui.md](graph-ui.md#event-flow-claude-creates-a-decision)).
@@ -574,14 +607,19 @@ show-dispatcher.ts          POST /api/show-advance   →   bus.emit(        proc
 2. **`POST /api/show-advance`** ([`api.ts`](../../src/mcp-server/api.ts)) —
    validates against `ShowAdvancePostSchema`
    ([`api-schemas.ts`](../../src/mcp-server/api-schemas.ts): `repo_path`,
-   `story_id`, `step` int `[1,9999]`), same `MAX_PRESENCE_BODY` cap and
-   `canonicalRepoPath(repo_path) === presence.homeRoot` gate every
-   `show`/presence POST route shares, then calls
-   `presence.emitAdvance(parsed.data)` on accept.
-3. **Bus wiring** ([`src/index.ts`](../../src/index.ts)) — `emitAdvance`
-   wraps the POST body into a full `Event` envelope (`kind:
-   "show.advance"`, payload `{story_id, step}`) and calls `bus.emit(...)` —
-   the same EventBus → worker → WS pipeline every other event kind rides.
+   `story_id`, `step` int `[1,9999]`), same `MAX_PRESENCE_BODY` cap and the
+   same `resolveBeaconTarget` registry gate every `show`/presence POST route
+   shares (`src/mcp-server/beacon-target.ts`: the checkout axis first, so a
+   linked worktree resolves to its own row and its own graph, then
+   `canonicalRepoPath` for a subdir or an unregistered worktree), then calls
+   `presence.emitAdvance(parsed.data, target)` on accept.
+3. **Bus wiring** ([`src/index.ts`](../../src/index.ts) →
+   [`show-events.ts`](../../src/events/show-events.ts)) — `emitAdvance`
+   wraps the POST body into a full `Event` envelope via `showAdvanceEvent()`
+   (`kind: "show.advance"`, `project_id` the resolved registry name, payload
+   `{story_id, step, repo_path}` with the resolved checkout root) and calls
+   `bus.emit(...)` — the same EventBus → worker → WS pipeline every other
+   event kind rides.
 4. **Worker** — `deriveMutations()`'s `show.advance` case
    (`src/events/worker/mutation-deriver.ts`) returns `[]` unconditionally:
    *"Story paging is presentation, not knowledge."* Zero graph mutations,
