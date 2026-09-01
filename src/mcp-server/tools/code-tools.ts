@@ -29,6 +29,7 @@ import { runContractExtraction } from "../../contracts/run-contracts.js";
 import { computeContractReport } from "./contract-tools.js";
 import { deriveProjectName } from "../../frame-extraction/cluster-tfidf-hdbscan.js";
 import { registerTool, type RepoContext, type RepoContextResolver } from "../repo-context.js";
+import { beginIndexSignal } from "../../index-signal.js";
 import { changesSinceShape, changesSinceSchema, changesSinceAction } from "./changes-since.js";
 import {
   buildRgArgs, buildGrepFallbackArgs, resolveRgBinary, classifySearchExec, runCodeSearch,
@@ -266,6 +267,7 @@ async function withFrames(
   repoPath: string,
   stagePath: string,
   liveDbPath: string,
+  signal?: { completed(stats?: { nodes?: number; edges?: number; frames?: number }): void },
 ): Promise<{ content: Array<{ type: "text"; text: string }> }> {
   const project = deriveProjectName(repoPath);
   let frames: FrameResult;
@@ -276,7 +278,183 @@ async function withFrames(
   }
   const contracts = await runContractExtraction({ repoPath, project, dbPath: stagePath });
   publishStagedDb({ stagePath, liveDbPath });
+  // The real-index path's baseText is the indexer's JSON envelope, carrying
+  // nodes/edges; the cache-import path's is prose ("imported from cache key …")
+  // and carries neither. Parse best-effort rather than branching at the call
+  // sites — a signal with fewer stats is correct, a wrong count is not.
+  let counts: { nodes?: number; edges?: number } = {};
+  try {
+    const parsed = JSON.parse(baseText) as { nodes?: number; edges?: number };
+    if (typeof parsed?.nodes === "number") counts = { nodes: parsed.nodes, edges: parsed.edges };
+  } catch { /* prose baseText — no counts, which is the honest answer */ }
+  signal?.completed({
+    ...counts,
+    frames: frames.status === "ok" ? frames.framesAssigned : undefined,
+  });
   return { content: [{ type: "text", text: `${baseText}\nframes: ${JSON.stringify(frames)}\ncontracts: ${JSON.stringify(contracts)}` }] };
+}
+
+type IndexRepositoryArgs = z.infer<typeof indexRepositorySchema>;
+
+/** Test seam: the `index_repository` handler body, callable without an
+ *  McpServer. `registerCodeTools` registers this same function. */
+export async function indexRepositoryForTest(args: IndexRepositoryArgs) {
+  // Checkout axis BEFORE any name/db/staging/registry derivation: a
+  // subdir still collapses to its enclosing checkout, but a linked
+  // worktree no longer collapses — it gets its own root (and so its own
+  // store). Non-git dirs canonicalize to their own realpath.
+  const repoPath = worktreeRoot(args.repo_path!);
+  // Announce the run before any work: the canvas waiting on this repo flips
+  // out of its "nothing here yet" state the moment the index starts, not when
+  // its next poll happens to land. The terminal phase is emitted by the body —
+  // completed from the publish chokepoint, failed from the indexer's own error
+  // envelope — with this catch covering everything that throws instead
+  // (an unwritable repo_path, a lock failure, a failed publish). Without it a
+  // canvas would wait on a `started` that never terminates.
+  const signal = beginIndexSignal({
+    repo_path: repoPath,
+    project: deriveProjectName(repoPath),
+    branch: gitBranch(repoPath),
+  });
+  try {
+    return await runIndexRepository(args, repoPath, signal);
+  } catch (e) {
+    signal.failed(e instanceof Error ? e.message : String(e));
+    throw e;
+  }
+}
+
+async function runIndexRepository(
+  args: IndexRepositoryArgs,
+  repoPath: string,
+  signal: ReturnType<typeof beginIndexSignal>,
+) {
+  const mode = args.mode ?? "full";
+  const dbPath = resolveCortexDbPath(repoPath);
+
+  const registerRepo = () => {
+    try {
+      const reg = new Registry();
+      try {
+        const canonicalRoot = mainWorktreeRoot(repoPath);
+        reg.register(deriveProjectName(repoPath), repoPath, undefined, {
+          worktree_of: canonicalRoot && canonicalRoot !== repoPath ? canonicalRoot : null,
+          branch: gitBranch(repoPath),
+        });
+      } finally { reg.close(); }
+    } catch { /* non-fatal: registration must never fail the index */ }
+
+    // Reap the now-consumed indexer slug cache (best-effort; never fail the index).
+    if (process.env.CORTEX_GC !== "0") {
+      try { reapRepoSlugCache(repoPath); } catch { /* non-fatal */ }
+    }
+  };
+
+  // Defensive: before we touch the graph DB (which a cache import will
+  // OVERWRITE), make sure any decisions still living in graph.db have
+  // been migrated into the sidecar decisions.db. The migration is
+  // idempotent (gated by schema_meta) so this is a no-op after the
+  // first run.
+  try {
+    const decisionsDbPath = resolveDecisionsDbPath(repoPath);
+    const decDb = openDecisionsDb(decisionsDbPath, legacyDecisionsDbPath(repoPath));
+    try {
+      migrateDecisionsFromGraphDb(decDb, dbPath);
+    } finally {
+      decDb.close();
+    }
+  } catch (e) {
+    // Migration failure must not block indexing. Surface to stderr so
+    // a regression here is visible without breaking the user's flow.
+    process.stderr.write(
+      `Cortex: defensive decisions migration failed: ${e instanceof Error ? e.message : String(e)}\n`,
+    );
+  }
+
+  // Build into a private staging DB so every write (cache import, indexer
+  // run, frame/contract passes) targets the staging path. publishStagedDb
+  // (called inside withFrames) is the single chokepoint that atomically
+  // promotes the finished artifact onto the canonical liveDbPath.
+  // withIndexLock serializes concurrent CLI + MCP index operations on the
+  // same repo so they never race on staging/publish.
+  return await withIndexLock(repoPath, async () => {
+    const stagePath = stagingDbPath(repoPath);
+    cleanupStagingDb(stagePath); // clear any stale staging from an interrupted run
+    try {
+      // Cache requires a git tree to key on. Without it, computeCacheKey()
+      // returns the same value for every non-git directory — which would
+      // let an unrelated repo serve stale results. Skip cache entirely when
+      // there's no .git directory.
+      let cacheKey: string | null = null;
+      if (existsSync(join(repoPath, ".git"))) {
+        try {
+          cacheKey = computeCacheKey(repoPath, mode);
+        } catch {
+          cacheKey = null;
+        }
+      }
+
+      // `readCacheEntry` re-checks that the entry declares THIS repo's
+      // identity and answers false if it does not, so a rejected entry
+      // falls through to a real index rather than publishing a stranger's
+      // graph. Ignoring that answer is why the 2026-08-30 mislabel was
+      // silent: the import reported success, and only the store knew.
+      let servedFromCache = false;
+      if (cacheKey && hasCacheEntry(cacheKey)) {
+        // Import the cached snapshot INTO staging, never directly onto the
+        // live db. withFrames will run passes against staging and then
+        // publish to dbPath atomically.
+        mkdirSync(dirname(stagePath), { recursive: true });
+        servedFromCache = readCacheEntry(cacheKey, stagePath, repoPath);
+      }
+      if (servedFromCache && cacheKey) {
+        const out = await withFrames(`imported from cache key ${cacheKey.slice(0, 12)}…`, repoPath, stagePath, dbPath, signal);
+        runStalenessSweep(repoPath, dbPath); // before captureIndexMeta — see run-sweep.ts
+        captureIndexMeta(dbPath, repoPath);
+        invalidateFreshness(repoPath);
+        registerRepo();
+        return out;
+      }
+
+      const result = await callIndexer("index_repository", { repo_path: repoPath, mode: mode }, stagePath);
+      if (!result.isError && cacheKey) {
+        // The indexer DB runs in WAL mode (see src/graph/store.ts).
+        // Checkpoint WAL into the staging file before snapshotting so the
+        // cached copy is self-contained. We checkpoint staging (not the live
+        // db) because publish hasn't happened yet at this point.
+        let checkpointed = false;
+        try {
+          const conn = new Database(stagePath);
+          try {
+            conn.pragma("wal_checkpoint(TRUNCATE)");
+            checkpointed = true;
+          } finally {
+            conn.close();
+          }
+        } catch { /* non-fatal; skip cache write */ }
+        if (checkpointed) {
+          try {
+            writeCacheEntry(cacheKey, stagePath);
+          } catch {
+            // Cache write failure is non-fatal.
+          }
+        }
+      }
+      if (result.isError) {
+        signal.failed(result.content?.[0]?.text ?? "index failed");
+        return result;
+      }
+      const baseText = result.content?.[0]?.text ?? "indexed";
+      const out = await withFrames(baseText, repoPath, stagePath, dbPath, signal);
+      runStalenessSweep(repoPath, dbPath); // before captureIndexMeta — see run-sweep.ts
+      captureIndexMeta(dbPath, repoPath);
+      invalidateFreshness(repoPath);
+      registerRepo();
+      return out;
+    } finally {
+      cleanupStagingDb(stagePath); // never leak staging — even on indexer error / throw
+    }
+  });
 }
 
 /**
@@ -309,136 +487,7 @@ export function registerCodeTools(
     registerTool(
       "index_repository",
       indexRepositorySchema,
-      async (_resolver, args) => {
-        // Checkout axis BEFORE any name/db/staging/registry derivation: a
-        // subdir still collapses to its enclosing checkout, but a linked
-        // worktree no longer collapses — it gets its own root (and so its own
-        // store). Non-git dirs canonicalize to their own realpath.
-        const repoPath = worktreeRoot(args.repo_path!);
-        const mode = args.mode ?? "full";
-        const dbPath = resolveCortexDbPath(repoPath);
-
-        const registerRepo = () => {
-          try {
-            const reg = new Registry();
-            try {
-              const canonicalRoot = mainWorktreeRoot(repoPath);
-              reg.register(deriveProjectName(repoPath), repoPath, undefined, {
-                worktree_of: canonicalRoot && canonicalRoot !== repoPath ? canonicalRoot : null,
-                branch: gitBranch(repoPath),
-              });
-            } finally { reg.close(); }
-          } catch { /* non-fatal: registration must never fail the index */ }
-
-          // Reap the now-consumed indexer slug cache (best-effort; never fail the index).
-          if (process.env.CORTEX_GC !== "0") {
-            try { reapRepoSlugCache(repoPath); } catch { /* non-fatal */ }
-          }
-        };
-
-        // Defensive: before we touch the graph DB (which a cache import will
-        // OVERWRITE), make sure any decisions still living in graph.db have
-        // been migrated into the sidecar decisions.db. The migration is
-        // idempotent (gated by schema_meta) so this is a no-op after the
-        // first run.
-        try {
-          const decisionsDbPath = resolveDecisionsDbPath(repoPath);
-          const decDb = openDecisionsDb(decisionsDbPath, legacyDecisionsDbPath(repoPath));
-          try {
-            migrateDecisionsFromGraphDb(decDb, dbPath);
-          } finally {
-            decDb.close();
-          }
-        } catch (e) {
-          // Migration failure must not block indexing. Surface to stderr so
-          // a regression here is visible without breaking the user's flow.
-          process.stderr.write(
-            `Cortex: defensive decisions migration failed: ${e instanceof Error ? e.message : String(e)}\n`,
-          );
-        }
-
-        // Build into a private staging DB so every write (cache import, indexer
-        // run, frame/contract passes) targets the staging path. publishStagedDb
-        // (called inside withFrames) is the single chokepoint that atomically
-        // promotes the finished artifact onto the canonical liveDbPath.
-        // withIndexLock serializes concurrent CLI + MCP index operations on the
-        // same repo so they never race on staging/publish.
-        return await withIndexLock(repoPath, async () => {
-          const stagePath = stagingDbPath(repoPath);
-          cleanupStagingDb(stagePath); // clear any stale staging from an interrupted run
-          try {
-            // Cache requires a git tree to key on. Without it, computeCacheKey()
-            // returns the same value for every non-git directory — which would
-            // let an unrelated repo serve stale results. Skip cache entirely when
-            // there's no .git directory.
-            let cacheKey: string | null = null;
-            if (existsSync(join(repoPath, ".git"))) {
-              try {
-                cacheKey = computeCacheKey(repoPath, mode);
-              } catch {
-                cacheKey = null;
-              }
-            }
-
-            // `readCacheEntry` re-checks that the entry declares THIS repo's
-            // identity and answers false if it does not, so a rejected entry
-            // falls through to a real index rather than publishing a stranger's
-            // graph. Ignoring that answer is why the 2026-08-30 mislabel was
-            // silent: the import reported success, and only the store knew.
-            let servedFromCache = false;
-            if (cacheKey && hasCacheEntry(cacheKey)) {
-              // Import the cached snapshot INTO staging, never directly onto the
-              // live db. withFrames will run passes against staging and then
-              // publish to dbPath atomically.
-              mkdirSync(dirname(stagePath), { recursive: true });
-              servedFromCache = readCacheEntry(cacheKey, stagePath, repoPath);
-            }
-            if (servedFromCache && cacheKey) {
-              const out = await withFrames(`imported from cache key ${cacheKey.slice(0, 12)}…`, repoPath, stagePath, dbPath);
-              runStalenessSweep(repoPath, dbPath); // before captureIndexMeta — see run-sweep.ts
-              captureIndexMeta(dbPath, repoPath);
-              invalidateFreshness(repoPath);
-              registerRepo();
-              return out;
-            }
-
-            const result = await callIndexer("index_repository", { repo_path: repoPath, mode: mode }, stagePath);
-            if (!result.isError && cacheKey) {
-              // The indexer DB runs in WAL mode (see src/graph/store.ts).
-              // Checkpoint WAL into the staging file before snapshotting so the
-              // cached copy is self-contained. We checkpoint staging (not the live
-              // db) because publish hasn't happened yet at this point.
-              let checkpointed = false;
-              try {
-                const conn = new Database(stagePath);
-                try {
-                  conn.pragma("wal_checkpoint(TRUNCATE)");
-                  checkpointed = true;
-                } finally {
-                  conn.close();
-                }
-              } catch { /* non-fatal; skip cache write */ }
-              if (checkpointed) {
-                try {
-                  writeCacheEntry(cacheKey, stagePath);
-                } catch {
-                  // Cache write failure is non-fatal.
-                }
-              }
-            }
-            if (result.isError) return result;
-            const baseText = result.content?.[0]?.text ?? "indexed";
-            const out = await withFrames(baseText, repoPath, stagePath, dbPath);
-            runStalenessSweep(repoPath, dbPath); // before captureIndexMeta — see run-sweep.ts
-            captureIndexMeta(dbPath, repoPath);
-            invalidateFreshness(repoPath);
-            registerRepo();
-            return out;
-          } finally {
-            cleanupStagingDb(stagePath); // never leak staging — even on indexer error / throw
-          }
-        });
-      },
+      async (_resolver, args) => indexRepositoryForTest(args),
       { resolver, allowUnindexed: true },
     ),
   );
