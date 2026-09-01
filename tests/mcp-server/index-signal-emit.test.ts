@@ -48,9 +48,11 @@ describe("index_repository emits lifecycle signals", () => {
     // withIndexLock's first act is a synchronous mkdirSync under repo_path, so
     // an unwritable path throws rather than returning an error envelope. The
     // throw must still reach the caller — only the signal is added.
+    // Not matched on errno: macOS answers ENOENT here and Linux EACCES. What
+    // is under test is that it throws at all, and signals before it does.
     await expect(
       indexRepositoryForTest({ repo_path: "/nonexistent/path/xyz" }),
-    ).rejects.toThrow(/ENOENT/);
+    ).rejects.toThrow();
 
     expect(seen.map((s) => s.phase)).toEqual(["started", "failed"]);
     expect(seen[1].error).toBeTruthy();
