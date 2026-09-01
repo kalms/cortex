@@ -18,6 +18,22 @@ All notable changes to Cortex are documented here. The format follows
 > [`ruevu/cortex-indexer`](https://github.com/ruevu/cortex-indexer) release and
 > stays as-is — it is not part of this repository's version line.
 
+## [2.3.3] — 2026-09-01
+
+### Added
+
+- **Transient `{type:'index'}` message on `/ws`** — `started` / `completed` /
+  `failed`, carrying `repo_path`, `project`, `branch`, and best-effort `stats`
+  (`nodes`, `edges`, `frames`, `elapsed_ms`; only `elapsed_ms` is guaranteed —
+  a cache import knows no node/edge counts and a detached background index
+  reports none at all). Emitted from the `index_repository` handler and from
+  the child `kickBackgroundIndex` spawns, so a consumer learns an index
+  finished instead of polling for it. Never persisted: no ULID, no `events.db`
+  row, no backfill or catch-up participation, and it carries `repo_path`
+  because index runs concern arbitrary checkouts while the socket binds one
+  project. `connectLiveSync` gains an `onIndex` callback; older clients ignore
+  the message through their existing `default:` branch.
+
 ## [2.3.2] — 2026-08-31
 
 ### Changed
@@ -2703,6 +2719,7 @@ placement, record drawer for TODOs) are deferred to 0.8.5.
 - **Floating-entity placement** of post-reclamation residual nodes + aggregates.
 - **Record drawer adoption for TODOs** (the drawer already ships for decisions).
 
+[2.3.3]: https://github.com/ruevu/cortex/releases/tag/v2.3.3
 [2.3.2]: https://github.com/ruevu/cortex/releases/tag/v2.3.2
 [2.3.1]: https://github.com/ruevu/cortex/releases/tag/v2.3.1
 [2.3.0]: https://github.com/ruevu/cortex/releases/tag/v2.3.0
