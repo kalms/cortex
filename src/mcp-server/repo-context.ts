@@ -16,6 +16,7 @@ import { DecisionLinksRepository } from "../decisions/links-repository.js";
 import { GraphStore } from "../graph/store.js";
 import { freshnessForContext, attachFreshness } from "./freshness.js";
 import { attachBriefing } from "./briefing-attach.js";
+import { beginIndexSignal } from "../index-signal.js";
 
 /**
  * Everything a tool needs to act on one repo. Constructed by
@@ -213,7 +214,7 @@ export class WorktreeIndexPendingError extends Error {
  * indexed". Never throws: a failed kick just means the caller gets the
  * plain not-indexed error.
  */
-function kickBackgroundIndex(checkout: string): boolean {
+export function kickBackgroundIndex(checkout: string): boolean {
   if (process.env.CORTEX_AUTO_INDEX === "0") return false;
   const sentinel = join(checkout, ".cortex", ".auto-index-attempted");
   try {
@@ -250,6 +251,14 @@ function kickBackgroundIndex(checkout: string): boolean {
     } catch {
       logFd = undefined;
     }
+    // Announce before the spawn, and resolve from the child's exit code. This
+    // path carries no stats: the child's output goes to auto-index.log, not
+    // back to this process.
+    const signal = beginIndexSignal({
+      repo_path: checkout,
+      project: deriveProjectName(checkout),
+      branch: gitBranch(checkout),
+    });
     const child = spawn(bin, ["index", ".", checkout], {
       detached: true,
       stdio: ["ignore", logFd ?? "ignore", logFd ?? "ignore"],
@@ -266,11 +275,19 @@ function kickBackgroundIndex(checkout: string): boolean {
     // capture, since the child never started and so never wrote anything
     // itself. Best-effort: a failure to append here must not surface either.
     child.on("error", (err) => {
+      signal.failed(`spawn '${bin}': ${err.message}`);
       try {
         appendFileSync(logPath, `[auto-index] failed to spawn '${bin}': ${err.message}\n`);
       } catch {
         /* diagnostic only — never let logging itself throw */
       }
+    });
+    // Attached BEFORE unref(): unref only removes the child from the event
+    // loop's ref count, so listeners still fire, but the listener must exist
+    // by the time the child can exit.
+    child.on("exit", (code, sigName) => {
+      if (code === 0) signal.completed();
+      else signal.failed(sigName ? `killed by ${sigName}` : `exited ${code}`);
     });
     child.unref();
     return true;
