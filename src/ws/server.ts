@@ -3,7 +3,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { RawData } from 'ws';
 import { encodeServer, decodeClient } from './protocol.js';
 import { ClientRegistry } from './client-registry.js';
-import type { ServerMsg, Event, GraphMutation, ProjectionDelta } from './types.js';
+import type { ServerMsg, Event, GraphMutation, ProjectionDelta, IndexSignalMsg } from './types.js';
 import type { EventPersister } from '../events/worker/persister.js';
 
 /** Catch-up replay window (spec: snapshot-vs-replay threshold). A client whose
@@ -34,6 +34,10 @@ export interface WsServerHandle {
   registry: ClientRegistry;
   broadcast(bundle: { events: Event[]; mutations: GraphMutation[] }): void;
   broadcastProjections(deltas: ProjectionDelta[]): void;
+  /** Transient index lifecycle. Fans out to every client regardless of the
+   *  server's bound projectId — index runs concern arbitrary checkouts, and
+   *  the client filters on `repo_path`. */
+  broadcastIndex(msg: IndexSignalMsg): void;
 }
 
 /**
@@ -103,6 +107,9 @@ export function startWsServer(opts: WsServerOpts): WsServerHandle {
       for (const delta of deltas) {
         registry.broadcast(encodeServer({ type: 'projection', delta }));
       }
+    },
+    broadcastIndex(msg: IndexSignalMsg) {
+      registry.broadcast(encodeServer(msg));
     },
   };
 }

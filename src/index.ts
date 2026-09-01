@@ -22,6 +22,7 @@ import type { WireNode } from "./events/types.js";
 import { newUlid } from "./events/ulid.js";
 import { presenceActivityEvent, showFocusEvent, showAdvanceEvent } from "./events/show-events.js";
 import { resolveBoundProject } from "./mcp-server/bound-project.js";
+import { setIndexSignalEmitter } from "./index-signal.js";
 
 const dbPath = resolveCortexDbPath();
 const eventsDbPath = process.env.CORTEX_EVENTS_DB_PATH || ".cortex/events.db";
@@ -227,6 +228,10 @@ if (port > 0 && httpServer) {
       }
     },
   });
+  // The two index paths emit through a module singleton (src/index-signal.ts);
+  // this is the only place it is installed, and the only place that knows a ws
+  // handle exists. Everywhere else the emit is a no-op.
+  setIndexSignalEmitter((msg) => wsHandle?.broadcastIndex(msg));
   process.stderr.write(`Cortex viewer: http://localhost:${port}/viewer (WS at /ws)\n`);
 } else {
   // startViewerServer has already logged the specific bind failure. Surface a
