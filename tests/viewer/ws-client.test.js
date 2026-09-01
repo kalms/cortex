@@ -195,4 +195,26 @@ describe("connectLiveSync", () => {
     await h.flush();
     expect(() => h.ws().recv({ type: "event", event: { kind: "presence.activity" } })).not.toThrow();
   });
+
+  it("hands index messages to onIndex and leaves the store alone", () => {
+    const onIndex = vi.fn();
+    const h = harness({ cursor: "01C", onIndex });
+    h.ws().open();
+
+    h.ws().recv({ type: "index", phase: "started", repo_path: "/tmp/wt", project: "wt", branch: "feat/x" });
+
+    expect(onIndex).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "index", phase: "started", repo_path: "/tmp/wt" }),
+    );
+    // Transient by contract: an index run is not project history.
+    expect(h.store.state.cursor).toBe("01C");
+  });
+
+  it("ignores an index message when no onIndex is supplied", () => {
+    const h = harness();
+    h.ws().open();
+    expect(() =>
+      h.ws().recv({ type: "index", phase: "completed", repo_path: "/r", project: "r", branch: null }),
+    ).not.toThrow();
+  });
 });

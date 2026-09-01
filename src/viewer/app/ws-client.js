@@ -15,6 +15,22 @@
 
 const DEFAULT_RETRY_DELAYS = [1000, 2000, 4000, 8000, 16000, 30000];
 
+/**
+ * Transient index lifecycle message. `stats` is best-effort — a cache import
+ * knows no node/edge counts and a detached background index reports none at
+ * all — but `elapsed_ms` is always measured.
+ *
+ * @typedef {{
+ *   type: 'index',
+ *   phase: 'started' | 'completed' | 'failed',
+ *   repo_path: string,
+ *   project: string | null,
+ *   branch: string | null,
+ *   stats?: { nodes?: number, edges?: number, frames?: number, elapsed_ms: number },
+ *   error?: string,
+ * }} IndexSignalMsg
+ */
+
 export function connectLiveSync({
   wsUrl,
   store,
@@ -22,6 +38,7 @@ export function connectLiveSync({
   resnapshot,
   onStatus,
   onEvent,
+  onIndex = /** @type {((msg: IndexSignalMsg) => void)|null} */ (null),
   eventBackfill = /** @type {{limit:number}|null} */ (null),
   WebSocketImpl = globalThis.WebSocket,
   retryDelays = DEFAULT_RETRY_DELAYS,
@@ -114,6 +131,13 @@ export function connectLiveSync({
       }
       case "backfill_page": {
         if (onEvent && eventBackfill) for (const e of msg.events) onEvent(e, { live: false });
+        return;
+      }
+      case "index": {
+        // Transient by contract: no store write, no cursor movement. The
+        // message concerns some checkout, not necessarily the bound project,
+        // so the consumer decides what an index of that path means to it.
+        if (onIndex) onIndex(msg);
         return;
       }
       default:

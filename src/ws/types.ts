@@ -7,4 +7,5 @@ export type {
   WireEdge,
   ProjectionEntity,
   ProjectionDelta,
+  IndexSignalMsg,
 } from '../events/types.js';

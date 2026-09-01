@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import WebSocket from 'ws';
 import { startWsServer } from '../../src/ws/server.js';
 import type { WsServerOpts } from '../../src/ws/server.js';
-import type { ServerMsg, Event, ProjectionDelta } from '../../src/ws/types.js';
+import type { ServerMsg, Event, ProjectionDelta, IndexSignalMsg } from '../../src/ws/types.js';
 import type { EventPersister } from '../../src/events/worker/persister.js';
 
 let closers: (() => Promise<void>)[] = [];
@@ -168,6 +168,46 @@ describe('WebSocket server', () => {
       ws.once('message', (d: Buffer) => r(JSON.parse(d.toString()))),
     );
     expect(msg).toMatchObject({ type: 'projection', delta: { entity: 'decision', op: 'upsert' } });
+    ws.close();
+  });
+
+  it('broadcastIndex fans an index message out and persists nothing', async () => {
+    // A real write would go through persister.insert, and would move the head
+    // cursor. Both are asserted untouched: "transient" is the whole point.
+    const inserted: Event[] = [];
+    const persister = {
+      ...fakePersister(),
+      insert: (e: Event) => { inserted.push(e); },
+      head: () => null,
+    } as unknown as EventPersister;
+
+    const { port, handle } = await startServer(persister);
+    const ws = new WebSocket(`ws://localhost:${port}/ws`);
+    await new Promise((r) => ws.once('open', r));
+    await new Promise((r) => ws.once('message', r)); // hello
+
+    const signal: IndexSignalMsg = {
+      type: 'index',
+      phase: 'completed',
+      repo_path: '/tmp/wt',
+      project: 'tmp-wt',
+      branch: 'feature/x',
+      stats: { nodes: 10, edges: 20, frames: 3, elapsed_ms: 1500 },
+    };
+    handle.broadcastIndex(signal);
+
+    const msg = await new Promise<ServerMsg>((r) =>
+      ws.once('message', (d: Buffer) => r(JSON.parse(d.toString()))),
+    );
+    expect(msg).toMatchObject({
+      type: 'index',
+      phase: 'completed',
+      repo_path: '/tmp/wt',
+      branch: 'feature/x',
+      stats: { nodes: 10, elapsed_ms: 1500 },
+    });
+    expect(inserted).toEqual([]);
+    expect(persister.head()).toBeNull();
     ws.close();
   });
 
